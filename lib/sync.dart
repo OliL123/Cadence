@@ -181,11 +181,43 @@ class SyncService extends ChangeNotifier {
     }
   }
 
-  /// Re-read local state (e.g. after the home-screen widget changed it) and push.
-  Future<void> refreshFromDiskAndPush() async {
+  /// On app resume, re-read local state (a home-screen widget tap may have
+  /// changed it) then reconcile with the cloud by timestamp — never a blind
+  /// push, so a stale local copy can't clobber newer cloud data.
+  Future<void> onResume() async {
     await store.load();
     store.notify();
-    if (isSignedIn) await _push();
+    if (isSignedIn) await _pull();
+  }
+
+  /// Manual override: force THIS device's data to win (stamps it newest, pushes).
+  Future<void> forcePush() async {
+    if (!isSignedIn) return;
+    store.touch();
+    await _push(force: true);
+    message = 'This device pushed to the cloud';
+    notifyListeners();
+  }
+
+  /// Manual override: replace local data with the cloud copy.
+  Future<void> forcePull() async {
+    if (!isSignedIn) return;
+    try {
+      final uid = _sb.auth.currentUser!.id;
+      final row =
+          await _sb.from(_table).select('data').eq('user_id', uid).maybeSingle();
+      if (row != null && row['data'] != null) {
+        final data = Map<String, dynamic>.from(row['data'] as Map);
+        store.applyRemoteState(data);
+        _lastSyncedJson = jsonEncode(store.exportState());
+        message = 'Loaded the cloud copy';
+      } else {
+        message = 'No cloud data yet';
+      }
+    } catch (err) {
+      message = 'Pull failed: $err';
+    }
+    notifyListeners();
   }
 
   void _teardown() {

@@ -108,7 +108,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // A home-screen widget tap may have changed the data on disk while we were
     // backgrounded — reload it and sync when we come back.
     if (state == AppLifecycleState.resumed) {
-      SyncService.instance.refreshFromDiskAndPush();
+      SyncService.instance.onResume();
     }
   }
 
@@ -637,7 +637,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   const SizedBox(width: 8),
                   Expanded(child: Text(s.email ?? '', style: const TextStyle(fontWeight: FontWeight.w700, color: C.ink))),
                 ]),
-                const SizedBox(height: 14),
+                if (s.message != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Text(s.message!, style: const TextStyle(fontSize: 12, color: C.greenD)),
+                  ),
+                const Text('If a device is out of sync, force it:',
+                    style: TextStyle(fontSize: 12, color: C.ink2)),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => s.forcePush(),
+                      icon: const Icon(Icons.cloud_upload_outlined, size: 16),
+                      label: const Text('Use this device', style: TextStyle(fontSize: 12)),
+                      style: FilledButton.styleFrom(backgroundColor: C.green),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => s.forcePull(),
+                      icon: const Icon(Icons.cloud_download_outlined, size: 16),
+                      label: const Text('Use cloud', style: TextStyle(fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                          foregroundColor: C.navy, side: const BorderSide(color: C.navy)),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 16),
                 OutlinedButton.icon(
                   onPressed: () => s.signOut(),
                   icon: const Icon(Icons.logout, size: 16),

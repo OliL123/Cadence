@@ -107,6 +107,14 @@ class CadenceStore extends ChangeNotifier {
   /// Notify listeners without persisting (used after an external reload).
   void notify() => notifyListeners();
 
+  /// Stamp the current local state as the newest (for a manual "use this
+  /// device" push that must win the sync conflict).
+  void touch() {
+    updatedAt = DateTime.now().millisecondsSinceEpoch;
+    notifyListeners();
+    save();
+  }
+
   void _changed() {
     updatedAt = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
