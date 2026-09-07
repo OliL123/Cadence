@@ -29,6 +29,7 @@ class Task {
   bool star;
   bool pri;
   String? dueISO; // yyyy-mm-dd
+  String? dueTime; // HH:mm (24h), optional
   List<SubTask> sub;
   bool open; // subtask panel expanded
   Tile? tile; // its mahjong tile while on the focus wall
@@ -41,6 +42,7 @@ class Task {
     this.star = false,
     this.pri = false,
     this.dueISO,
+    this.dueTime,
     List<SubTask>? sub,
     this.open = false,
     this.tile,
@@ -54,6 +56,7 @@ class Task {
         'star': star,
         'pri': pri,
         'due': dueISO,
+        'dueT': dueTime,
         'sub': sub.map((s) => s.toJson()).toList(),
         'open': open,
         'tile': tile?.toJson(),
@@ -67,6 +70,7 @@ class Task {
         star: j['star'] ?? false,
         pri: j['pri'] ?? false,
         dueISO: j['due'],
+        dueTime: j['dueT'],
         sub: ((j['sub'] ?? []) as List)
             .map((e) => SubTask.fromJson(e as Map<String, dynamic>))
             .toList(),

@@ -784,8 +784,98 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
   Future<void> _quickAdd(Group g) async {
-    final v = await _promptText('New task · ${g.name}', '');
-    if (v != null && v.trim().isNotEmpty) store.addTask(v, g.key);
+    final ctl = TextEditingController();
+    DateTime? date;
+    TimeOfDay? time;
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          final now = DateTime.now();
+          return AlertDialog(
+            backgroundColor: C.paper2,
+            title: Row(children: [
+              Text('新增', style: serifHk(size: 17, color: C.red)),
+              const SizedBox(width: 8),
+              Flexible(child: Text(g.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: C.ink2))),
+            ]),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(
+                controller: ctl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.sentences,
+                onSubmitted: (_) {
+                  if (ctl.text.trim().isNotEmpty) {
+                    _commitQuickAdd(g, ctl.text, date, time);
+                    Navigator.pop(ctx);
+                  }
+                },
+                decoration: _syncField('Task title'),
+              ),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final d = await showDatePicker(
+                        context: ctx,
+                        initialDate: date ?? now,
+                        firstDate: DateTime(now.year - 1),
+                        lastDate: DateTime(now.year + 3),
+                      );
+                      if (d != null) setLocal(() => date = d);
+                    },
+                    icon: const Icon(Icons.event, size: 16),
+                    label: Text(date == null ? 'Date' : _addDateLabel(date!),
+                        style: const TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: date == null ? C.ink3 : C.navy,
+                        side: BorderSide(color: date == null ? C.line : C.navy)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: date == null
+                        ? null
+                        : () async {
+                            final tt = await showTimePicker(
+                                context: ctx, initialTime: time ?? TimeOfDay.now());
+                            if (tt != null) setLocal(() => time = tt);
+                          },
+                    icon: const Icon(Icons.schedule, size: 16),
+                    label: Text(time == null ? 'Time' : time!.format(ctx),
+                        style: const TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: time == null ? C.ink3 : C.navy,
+                        side: BorderSide(color: time == null ? C.line : C.navy)),
+                  ),
+                ),
+              ]),
+            ]),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: C.green),
+                onPressed: () {
+                  _commitQuickAdd(g, ctl.text, date, time);
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Add'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _commitQuickAdd(Group g, String title, DateTime? date, TimeOfDay? time) {
+    if (title.trim().isEmpty) return;
+    final hhmm = time == null
+        ? null
+        : '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    store.addTask(title, g.key, due: date, dueTime: hhmm);
   }
 
   Future<void> _renameGroup(Group g) async {

@@ -241,13 +241,19 @@ class CadenceStore extends ChangeNotifier {
       .toList();
 
   // ---------- task mutations ----------
-  void addTask(String title, String group, {DateTime? due}) {
+  void addTask(String title, String group, {DateTime? due, String? dueTime}) {
     final t = Task(
         id: _newId(),
         title: title.trim().isEmpty ? 'New task' : title.trim(),
         group: group);
     if (due != null) _applyDue(t, due);
+    if (dueTime != null && due != null) t.dueTime = dueTime;
     tasks.insert(0, t);
+    _changed();
+  }
+
+  void setDueTime(Task t, String? hhmm) {
+    t.dueTime = hhmm;
     _changed();
   }
 
@@ -351,6 +357,7 @@ class CadenceStore extends ChangeNotifier {
     t.dueISO = d == null
         ? null
         : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    if (d == null) t.dueTime = null; // clearing the date clears the time too
   }
 
   void setDue(Task t, DateTime? d) {
@@ -510,14 +517,26 @@ class CadenceStore extends ChangeNotifier {
     final now = DateTime.now();
     final t0 = DateTime(now.year, now.month, now.day);
     final days = d.difference(t0).inDays;
-    if (days < 0) return 'overdue';
-    if (days == 0) return 'today';
-    if (days == 1) return 'tmr';
+    final tm = t.dueTime != null ? ' ${_fmtTime(t.dueTime!)}' : '';
+    if (days < 0) return 'overdue$tm';
+    if (days == 0) return 'today$tm';
+    if (days == 1) return 'tmr$tm';
     if (days < 7) {
-      return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.weekday % 7];
+      return '${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.weekday % 7]}$tm';
     }
     const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${d.day} ${mon[d.month - 1]}';
+    return '${d.day} ${mon[d.month - 1]}$tm';
+  }
+
+  /// "14:30" -> "2:30pm"
+  static String _fmtTime(String hhmm) {
+    final p = hhmm.split(':');
+    if (p.length != 2) return hhmm;
+    final h = int.tryParse(p[0]) ?? 0;
+    final m = p[1];
+    final ap = h < 12 ? 'am' : 'pm';
+    final h12 = h % 12 == 0 ? 12 : h % 12;
+    return '$h12:$m$ap';
   }
 
   bool soon(Task t) {
