@@ -60,6 +60,9 @@ dev_dependencies:
   # Generates Android launcher icons from a source PNG
   flutter_launcher_icons: ^0.14.1
 
+  # Used by tool/circle_favicon.dart to mask the icon into a circle
+  image: ^4.3.0
+
 flutter_launcher_icons:
   android: true
   ios: false
@@ -69,7 +72,7 @@ flutter_launcher_icons:
   min_sdk_android: 21
   web:
     generate: true
-    image_path: "assets/icon/ic_full.png"
+    image_path: "assets/icon/ic_circle.png"
     background_color: "#F3E6CC"
     theme_color: "#BE3A2B"
 
