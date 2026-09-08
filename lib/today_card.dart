@@ -147,6 +147,8 @@ class _TodayCardState extends State<TodayCard> {
       .difference(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day))
       .inDays;
 
+  String _hdays(int d) => d == 0 ? 'today' : (d == 1 ? 'tmr' : '$d days');
+
   Widget _infoCol(BuildContext context) {
     final wxIcon = _wx == null ? Icons.wb_sunny_outlined : weatherInfo(_wx!.code).$2;
     final wxVal = _wxLoading
@@ -157,7 +159,7 @@ class _TodayCardState extends State<TodayCard> {
     final h = _nextHoliday();
     final holVal = _holLoading
         ? 'loading…'
-        : (h == null ? 'none found' : '${h.name} · ${_daysTo(h.date)}d');
+        : (h == null ? 'none found' : '${h.name} · ${_hdays(_daysTo(h.date))}');
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
       child: Column(
@@ -449,7 +451,40 @@ class _TodayCardState extends State<TodayCard> {
               const SizedBox(width: 8),
               Text('HOLIDAYS', style: _mono(11, C.ink3).copyWith(letterSpacing: 1)),
             ]),
-            const SizedBox(height: 10),
+            const SizedBox(height: 14),
+            if (upcoming.isNotEmpty)
+              Builder(builder: (_) {
+                final next = upcoming.first;
+                final days = next.date.difference(t0).inDays;
+                final col = placeColor(next.country);
+                const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                return Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: col.withValues(alpha: .10),
+                    border: Border.all(color: col, width: 1.4),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Row(children: [
+                    Column(children: [
+                      Text('${days == 0 ? 'TODAY' : days}',
+                          style: _serif(days == 0 ? 22 : 34, col).copyWith(height: 1)),
+                      if (days != 0) Text(days == 1 ? 'day' : 'days', style: _mono(9, col)),
+                    ]),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(days == 0 ? 'today is' : 'until', style: _sans(11, C.ink3, FontWeight.w400)),
+                        Text(next.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: _sans(15.5, C.ink)),
+                        Text('${next.date.day} ${mon[next.date.month - 1]} · ${holidayPlaces[next.country] ?? next.country}',
+                            style: _mono(10.5, C.ink3)),
+                      ]),
+                    ),
+                  ]),
+                );
+              }),
             Text('Tap regions to show their holidays:', style: _sans(11.5, C.ink2)),
             const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 8, children: [
