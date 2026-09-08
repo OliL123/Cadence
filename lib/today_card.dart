@@ -44,10 +44,12 @@ class _TodayCardState extends State<TodayCard> {
   Future<void> _loadHolidays() async {
     if (mounted) setState(() => _holLoading = true);
     final now = DateTime.now();
-    var list = await fetchHolidays(store.holidayCountry, now.year);
-    // include early next-year holidays so the countdown never runs dry
-    list = [...list, ...await fetchHolidays(store.holidayCountry, now.year + 1)];
-    if (mounted) setState(() { _holidays = list; _holLoading = false; });
+    final all = <Holiday>[];
+    for (final c in store.holidayCountries) {
+      all.addAll(await fetchHolidays(c, now.year));
+      all.addAll(await fetchHolidays(c, now.year + 1));
+    }
+    if (mounted) setState(() { _holidays = all; _holLoading = false; });
   }
 
   Holiday? _nextHoliday() {
@@ -167,8 +169,8 @@ class _TodayCardState extends State<TodayCard> {
             const SizedBox(height: 12),
             _mini(
                 Icons.celebration_outlined,
-                C.red,
-                '假期 ${(holidayPlaces[store.holidayCountry] ?? store.holidayCountry).toUpperCase()}',
+                h == null ? C.red : placeColor(h.country),
+                '假期 ${store.holidayCountries.join(' · ')}',
                 holVal,
                 () => _showHolidays(context)),
           ]),
@@ -403,6 +405,28 @@ class _TodayCardState extends State<TodayCard> {
         Text(temp, style: _mono(12, C.ink)),
       ]);
 
+  Widget _regionChip(String code, String label, bool on, VoidCallback onTap) {
+    final col = placeColor(code);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        decoration: BoxDecoration(
+          color: on ? col : C.paper,
+          border: Border.all(color: col, width: 1.4),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (on) ...[
+            const Icon(Icons.check, size: 13, color: C.creamTxt),
+            const SizedBox(width: 4),
+          ],
+          Text(label, style: _sans(12, on ? C.creamTxt : col, FontWeight.w700)),
+        ]),
+      ),
+    );
+  }
+
   void _showHolidays(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -425,51 +449,40 @@ class _TodayCardState extends State<TodayCard> {
               const SizedBox(width: 8),
               Text('HOLIDAYS', style: _mono(11, C.ink3).copyWith(letterSpacing: 1)),
             ]),
-            const SizedBox(height: 12),
-            Row(children: [
-              Text('Region', style: _sans(12.5, C.ink2)),
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                decoration: BoxDecoration(
-                    border: Border.all(color: C.green, width: 1.5),
-                    borderRadius: BorderRadius.circular(8)),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: store.holidayCountry,
-                    isDense: true,
-                    style: _sans(13, C.ink),
-                    items: [
-                      for (final e in holidayPlaces.entries)
-                        DropdownMenuItem(value: e.key, child: Text(e.value)),
-                    ],
-                    onChanged: (c) async {
-                      if (c == null) return;
-                      store.setHolidayCountry(c);
-                      setLocal(() {});
-                      await _loadHolidays();
-                      setLocal(() {});
-                    },
-                  ),
-                ),
-              ),
+            const SizedBox(height: 10),
+            Text('Tap regions to show their holidays:', style: _sans(11.5, C.ink2)),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final e in holidayPlaces.entries)
+                _regionChip(e.key, e.value, store.holidayCountries.contains(e.key), () async {
+                  store.toggleHolidayCountry(e.key);
+                  setLocal(() {});
+                  await _loadHolidays();
+                  setLocal(() {});
+                }),
             ]),
             const SizedBox(height: 14),
             if (_holLoading)
               Text('Loading…', style: _sans(13, C.ink2))
+            else if (store.holidayCountries.isEmpty)
+              Text('Pick at least one region above.', style: _sans(13, C.ink2))
             else if (upcoming.isEmpty)
-              Text('No public holidays found for this region.', style: _sans(13, C.ink2))
+              Text('No upcoming public holidays found.', style: _sans(13, C.ink2))
             else
-              for (final h in upcoming.take(8))
+              for (final h in upcoming.take(10))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 9),
                   child: Row(children: [
+                    Container(
+                      width: 9, height: 9, margin: const EdgeInsets.only(right: 9),
+                      decoration: BoxDecoration(color: placeColor(h.country), borderRadius: BorderRadius.circular(2)),
+                    ),
                     Expanded(child: Text(h.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: _sans(14, C.ink, FontWeight.w700))),
                     Text('${h.date.year}/${h.date.month}/${h.date.day}', style: _mono(11, C.ink3)),
                     const SizedBox(width: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                      decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(5)),
+                      decoration: BoxDecoration(color: placeColor(h.country), borderRadius: BorderRadius.circular(5)),
                       child: Text('${h.date.difference(t0).inDays}d',
                           style: _mono(10.5, C.creamTxt).copyWith(fontWeight: FontWeight.w700)),
                     ),

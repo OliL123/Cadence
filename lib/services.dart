@@ -108,8 +108,26 @@ Future<List<GeoPlace>> geocode(String name) async {
 class Holiday {
   final DateTime date;
   final String name;
-  Holiday(this.date, this.name);
+  final String country; // ISO code this holiday belongs to
+  Holiday(this.date, this.name, this.country);
 }
+
+/// A stable colour per holiday region.
+const _placeColors = <String, Color>{
+  'US': Color(0xFF2C4C7C), // navy
+  'HK': Color(0xFFBE3A2B), // red
+  'GB': Color(0xFF1F6E4E), // green
+  'CA': Color(0xFFD2982E), // mustard
+  'AU': Color(0xFF217A6E), // teal
+  'CN': Color(0xFFA31545),
+  'JP': Color(0xFF7A4E28),
+  'SG': Color(0xFF2C7C6E),
+  'TW': Color(0xFF126E4E),
+  'KR': Color(0xFFC96A1E),
+  'DE': Color(0xFF3A3630),
+  'FR': Color(0xFF4A4C9C),
+};
+Color placeColor(String code) => _placeColors[code] ?? const Color(0xFF7C7358);
 
 /// Common places to pick from (ISO-3166 alpha-2 country codes).
 const holidayPlaces = <String, String>{
@@ -136,7 +154,7 @@ Future<List<Holiday>> fetchHolidays(String country, int year) async {
     return [
       for (final e in list)
         Holiday(DateTime.parse(e['date'] as String),
-            (e['localName'] ?? e['name'] ?? '') as String),
+            (e['localName'] ?? e['name'] ?? '') as String, country),
     ];
   } catch (_) {
     return [];

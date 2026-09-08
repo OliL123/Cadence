@@ -23,7 +23,7 @@ class CadenceStore extends ChangeNotifier {
   String weatherPlace = 'Ann Arbor';
   double weatherLat = 42.28;
   double weatherLon = -83.74;
-  String holidayCountry = 'US'; // ISO-3166 alpha-2
+  List<String> holidayCountries = ['US']; // ISO-3166 alpha-2 codes, colour-coded
 
   int _newId() => ++_uid;
 
@@ -74,7 +74,7 @@ class CadenceStore extends ChangeNotifier {
         'wxPlace': weatherPlace,
         'wxLat': weatherLat,
         'wxLon': weatherLon,
-        'holCountry': holidayCountry,
+        'holCountries': holidayCountries,
       };
 
   /// Replace the whole in-memory state from a map (from disk or from the cloud).
@@ -95,7 +95,11 @@ class CadenceStore extends ChangeNotifier {
     weatherPlace = j['wxPlace'] ?? weatherPlace;
     weatherLat = (j['wxLat'] ?? weatherLat).toDouble();
     weatherLon = (j['wxLon'] ?? weatherLon).toDouble();
-    holidayCountry = j['holCountry'] ?? holidayCountry;
+    if (j['holCountries'] is List) {
+      holidayCountries = (j['holCountries'] as List).map((e) => e as String).toList();
+    } else if (j['holCountry'] != null) {
+      holidayCountries = [j['holCountry'] as String]; // migrate old single value
+    }
     final rawDeck = j['deck'];
     if (rawDeck is List) {
       deck = rawDeck.map((e) => Tile.fromJson(e as Map<String, dynamic>)).toList();
@@ -277,8 +281,12 @@ class CadenceStore extends ChangeNotifier {
     _changed();
   }
 
-  void setHolidayCountry(String code) {
-    holidayCountry = code;
+  void toggleHolidayCountry(String code) {
+    if (holidayCountries.contains(code)) {
+      holidayCountries = holidayCountries.where((c) => c != code).toList();
+    } else {
+      holidayCountries = [...holidayCountries, code];
+    }
     _changed();
   }
 
