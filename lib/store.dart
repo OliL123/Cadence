@@ -19,6 +19,11 @@ class CadenceStore extends ChangeNotifier {
   String filter = 'all'; // 'all' or a group key (left-rail selection)
   bool showDone = false;
   int updatedAt = 0; // ms since epoch of the last local change (for sync LWW)
+  // TODAY card preferences (synced)
+  String weatherPlace = 'Ann Arbor';
+  double weatherLat = 42.28;
+  double weatherLon = -83.74;
+  String holidayCountry = 'US'; // ISO-3166 alpha-2
 
   int _newId() => ++_uid;
 
@@ -66,6 +71,10 @@ class CadenceStore extends ChangeNotifier {
         'filter': filter,
         'showDone': showDone,
         'updatedAt': updatedAt,
+        'wxPlace': weatherPlace,
+        'wxLat': weatherLat,
+        'wxLon': weatherLon,
+        'holCountry': holidayCountry,
       };
 
   /// Replace the whole in-memory state from a map (from disk or from the cloud).
@@ -83,6 +92,10 @@ class CadenceStore extends ChangeNotifier {
     filter = j['filter'] ?? 'all';
     showDone = j['showDone'] ?? false;
     updatedAt = j['updatedAt'] ?? 0;
+    weatherPlace = j['wxPlace'] ?? weatherPlace;
+    weatherLat = (j['wxLat'] ?? weatherLat).toDouble();
+    weatherLon = (j['wxLon'] ?? weatherLon).toDouble();
+    holidayCountry = j['holCountry'] ?? holidayCountry;
     final rawDeck = j['deck'];
     if (rawDeck is List) {
       deck = rawDeck.map((e) => Tile.fromJson(e as Map<String, dynamic>)).toList();
@@ -254,6 +267,18 @@ class CadenceStore extends ChangeNotifier {
 
   void setDueTime(Task t, String? hhmm) {
     t.dueTime = hhmm;
+    _changed();
+  }
+
+  void setWeatherLocation(String name, double lat, double lon) {
+    weatherPlace = name;
+    weatherLat = lat;
+    weatherLon = lon;
+    _changed();
+  }
+
+  void setHolidayCountry(String code) {
+    holidayCountry = code;
     _changed();
   }
 

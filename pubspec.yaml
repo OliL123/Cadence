@@ -47,6 +47,9 @@ dependencies:
   # Cross-device sync (phone <-> PC) via Supabase
   supabase_flutter: ^2.8.0
 
+  # Live weather (Open-Meteo) + public holidays (Nager.Date) — no API keys
+  http: ^1.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

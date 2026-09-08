@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'palette.dart';
+import 'services.dart';
+import 'store.dart';
 
 TextStyle _serif(double s, Color c) =>
     GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: s, color: c);
@@ -18,6 +20,10 @@ class TodayCard extends StatefulWidget {
 
 class _TodayCardState extends State<TodayCard> {
   Timer? _timer;
+  WeatherData? _wx;
+  bool _wxLoading = true;
+  List<Holiday> _holidays = [];
+  bool _holLoading = true;
 
   @override
   void initState() {
@@ -25,6 +31,31 @@ class _TodayCardState extends State<TodayCard> {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
+    _loadWeather();
+    _loadHolidays();
+  }
+
+  Future<void> _loadWeather() async {
+    if (mounted) setState(() => _wxLoading = true);
+    final w = await fetchWeather(store.weatherLat, store.weatherLon);
+    if (mounted) setState(() { _wx = w; _wxLoading = false; });
+  }
+
+  Future<void> _loadHolidays() async {
+    if (mounted) setState(() => _holLoading = true);
+    final now = DateTime.now();
+    var list = await fetchHolidays(store.holidayCountry, now.year);
+    // include early next-year holidays so the countdown never runs dry
+    list = [...list, ...await fetchHolidays(store.holidayCountry, now.year + 1)];
+    if (mounted) setState(() { _holidays = list; _holLoading = false; });
+  }
+
+  Holiday? _nextHoliday() {
+    final t0 = DateTime.now();
+    final t = DateTime(t0.year, t0.month, t0.day);
+    final upcoming = _holidays.where((h) => !h.date.isBefore(t)).toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+    return upcoming.isEmpty ? null : upcoming.first;
   }
 
   @override
@@ -47,37 +78,12 @@ class _TodayCardState extends State<TodayCard> {
     return '${zod[j]}年';
   }
 
-  (String, int) _nextHoliday(DateTime now) {
-    final t0 = DateTime(now.year, now.month, now.day);
-    final list = <(String, DateTime)>[
-      ('元旦', DateTime(now.year, 1, 1)),
-      ('春節', DateTime(2026, 2, 17)),
-      ('清明', DateTime(now.year, 4, 5)),
-      ('勞動節', DateTime(now.year, 5, 1)),
-      ('中秋', DateTime(2026, 9, 25)),
-      ('國慶', DateTime(now.year, 10, 1)),
-      ('聖誕', DateTime(now.year, 12, 25)),
-      ('元旦', DateTime(now.year + 1, 1, 1)),
-    ];
-    String name = '—';
-    int best = 1 << 30;
-    for (final h in list) {
-      final d = h.$2.difference(t0).inDays;
-      if (d >= 0 && d < best) {
-        best = d;
-        name = h.$1;
-      }
-    }
-    return (name, best == (1 << 30) ? 0 : best);
-  }
-
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final wd = ['日', '一', '二', '三', '四', '五', '六'][now.weekday % 7];
     String p(int n) => n.toString().padLeft(2, '0');
     final clock = '${p(now.hour)}:${p(now.minute)}:${p(now.second)}';
-    final hol = _nextHoliday(now);
 
     return _enamel(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -106,7 +112,7 @@ class _TodayCardState extends State<TodayCard> {
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Expanded(flex: 22, child: _dateCol(now)),
             _vdiv(),
-            Expanded(flex: 19, child: _infoCol(context, hol)),
+            Expanded(flex: 19, child: _infoCol(context)),
             _vdiv(),
             Expanded(flex: 24, child: _calCol(context)),
           ]),
@@ -135,19 +141,39 @@ class _TodayCardState extends State<TodayCard> {
         ]),
       );
 
-  Widget _infoCol(BuildContext context, (String, int) hol) => Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-        child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _mini(Icons.wb_sunny_outlined, C.mustard, '天氣 WEATHER', '31° 天晴',
-                  () => _showWeather(context)),
-              const SizedBox(height: 12),
-              _mini(Icons.celebration_outlined, C.red, '假期 HOLIDAY',
-                  '${hol.$1} ${hol.$2}日', () => _showHolidays(context)),
-            ]),
-      );
+  int _daysTo(DateTime d) => DateTime(d.year, d.month, d.day)
+      .difference(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day))
+      .inDays;
+
+  Widget _infoCol(BuildContext context) {
+    final wxIcon = _wx == null ? Icons.wb_sunny_outlined : weatherInfo(_wx!.code).$2;
+    final wxVal = _wxLoading
+        ? 'loading…'
+        : (_wx == null
+            ? 'tap to set'
+            : '${_wx!.temp.round()}° ${weatherInfo(_wx!.code).$1}');
+    final h = _nextHoliday();
+    final holVal = _holLoading
+        ? 'loading…'
+        : (h == null ? 'none found' : '${h.name} · ${_daysTo(h.date)}d');
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _mini(wxIcon, C.mustard, '天氣 ${store.weatherPlace.toUpperCase()}', wxVal,
+                () => _showWeather(context)),
+            const SizedBox(height: 12),
+            _mini(
+                Icons.celebration_outlined,
+                C.red,
+                '假期 ${(holidayPlaces[store.holidayCountry] ?? store.holidayCountry).toUpperCase()}',
+                holVal,
+                () => _showHolidays(context)),
+          ]),
+    );
+  }
 
   Widget _mini(IconData icon, Color ic, String label, String value, VoidCallback onTap) =>
       InkWell(
@@ -160,7 +186,7 @@ class _TodayCardState extends State<TodayCard> {
             const SizedBox(width: 8),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(label, style: _mono(8, C.ink3).copyWith(letterSpacing: .8)),
+                Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: _mono(8, C.ink3).copyWith(letterSpacing: .8)),
                 Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: _sans(12.5, C.ink)),
               ]),
             ),
@@ -262,26 +288,112 @@ class _TodayCardState extends State<TodayCard> {
         ]),
       );
 
-  void _showWeather(BuildContext context) => _sheet(
-        context, '天氣', 'WEATHER', C.mustard, Icons.wb_sunny_outlined, [
-          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('31°', style: _serif(40, C.ink)),
-            const SizedBox(width: 10),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text('天晴 · Clear\nAnn Arbor', style: _sans(13, C.ink2)),
-            ),
+  void _showWeather(BuildContext context) {
+    const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    _sheet(context, '天氣', store.weatherPlace.toUpperCase(), C.mustard,
+        _wx == null ? Icons.wb_sunny_outlined : weatherInfo(_wx!.code).$2, [
+      if (_wxLoading)
+        Text('Loading…', style: _sans(13, C.ink2))
+      else if (_wx == null)
+        Text('Could not load weather. Set a location below.', style: _sans(13, C.ink2))
+      else ...[
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text('${_wx!.temp.round()}°', style: _serif(40, C.ink)),
+          const SizedBox(width: 12),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text('${weatherInfo(_wx!.code).$1}\n${store.weatherPlace}',
+                style: _sans(13, C.ink2)),
+          ),
+        ]),
+        const SizedBox(height: 16),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          for (final d in _wx!.days.take(5))
+            _fc(wd[d.date.weekday - 1], '${d.max.round()}°', weatherInfo(d.code).$2),
+        ]),
+      ],
+      const SizedBox(height: 16),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: () {
+            Navigator.pop(context);
+            _pickLocation(context);
+          },
+          icon: const Icon(Icons.edit_location_alt_outlined, size: 16),
+          label: const Text('Change location'),
+          style: OutlinedButton.styleFrom(
+              foregroundColor: C.navy, side: const BorderSide(color: C.navy)),
+        ),
+      ),
+    ]);
+  }
+
+  void _pickLocation(BuildContext context) {
+    final ctl = TextEditingController(text: store.weatherPlace);
+    List<GeoPlace> results = [];
+    bool searching = false;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: C.paper2,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
+        Future<void> search() async {
+          setLocal(() => searching = true);
+          final r = await geocode(ctl.text);
+          setLocal(() { results = r; searching = false; });
+        }
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 18, 20, 18 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Set weather location', style: _serif(17, C.red)),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: ctl,
+                  autofocus: true,
+                  onSubmitted: (_) => search(),
+                  decoration: const InputDecoration(
+                    hintText: 'City name',
+                    isDense: true,
+                    filled: true,
+                    fillColor: C.paper,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: search,
+                style: FilledButton.styleFrom(backgroundColor: C.navy),
+                child: const Text('Search'),
+              ),
+            ]),
+            const SizedBox(height: 10),
+            if (searching)
+              const Padding(padding: EdgeInsets.all(8), child: Text('Searching…'))
+            else
+              for (final p in results)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(p.name, style: _sans(14, C.ink)),
+                  subtitle: Text(p.admin, style: _sans(11.5, C.ink3, FontWeight.w400)),
+                  onTap: () {
+                    store.setWeatherLocation(p.name, p.lat, p.lon);
+                    _loadWeather();
+                    Navigator.pop(ctx);
+                  },
+                ),
+            const SizedBox(height: 6),
           ]),
-          const SizedBox(height: 14),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            _fc('今', '31°', Icons.wb_sunny_outlined),
-            _fc('明', '29°', Icons.cloud_outlined),
-            _fc('三', '27°', Icons.grain),
-            _fc('四', '30°', Icons.wb_sunny_outlined),
-            _fc('五', '28°', Icons.cloud_outlined),
-          ]),
-          _demoNote('Sample forecast — the app will use your location for live weather.'),
-        ]);
+        );
+      }),
+    );
+  }
 
   Widget _fc(String day, String temp, IconData icon) => Column(children: [
         Text(day, style: _sans(12, C.ink2)),
@@ -292,36 +404,81 @@ class _TodayCardState extends State<TodayCard> {
       ]);
 
   void _showHolidays(BuildContext context) {
-    final now = DateTime.now();
-    final t0 = DateTime(now.year, now.month, now.day);
-    final list = <(String, DateTime)>[
-      ('中秋節', DateTime(2026, 9, 25)),
-      ('國慶日', DateTime(now.year, 10, 1)),
-      ('重陽節', DateTime(2026, 10, 19)),
-      ('聖誕節', DateTime(now.year, 12, 25)),
-      ('元旦', DateTime(now.year + 1, 1, 1)),
-      ('農曆新年', DateTime(2027, 2, 6)),
-    ];
-    final upcoming = list.where((h) => !h.$2.isBefore(t0)).toList()
-      ..sort((a, b) => a.$2.compareTo(b.$2));
-    _sheet(context, '假期', 'HOLIDAYS', C.red, Icons.celebration_outlined, [
-      for (final h in upcoming.take(5))
-        Padding(
-          padding: const EdgeInsets.only(bottom: 9),
-          child: Row(children: [
-            Expanded(child: Text(h.$1, style: _sans(14, C.ink, FontWeight.w700))),
-            Text('${h.$2.year}/${h.$2.month}/${h.$2.day}', style: _mono(11, C.ink3)),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(5)),
-              child: Text('${h.$2.difference(t0).inDays}日',
-                  style: _mono(10.5, C.creamTxt).copyWith(fontWeight: FontWeight.w700)),
-            ),
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: C.paper2,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
+        final now = DateTime.now();
+        final t0 = DateTime(now.year, now.month, now.day);
+        final upcoming = _holidays.where((h) => !h.date.isBefore(t0)).toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              const Icon(Icons.celebration_outlined, size: 22, color: C.red),
+              const SizedBox(width: 10),
+              Text('假期', style: _serif(20, C.red)),
+              const SizedBox(width: 8),
+              Text('HOLIDAYS', style: _mono(11, C.ink3).copyWith(letterSpacing: 1)),
+            ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              Text('Region', style: _sans(12.5, C.ink2)),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                    border: Border.all(color: C.green, width: 1.5),
+                    borderRadius: BorderRadius.circular(8)),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: store.holidayCountry,
+                    isDense: true,
+                    style: _sans(13, C.ink),
+                    items: [
+                      for (final e in holidayPlaces.entries)
+                        DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    ],
+                    onChanged: (c) async {
+                      if (c == null) return;
+                      store.setHolidayCountry(c);
+                      setLocal(() {});
+                      await _loadHolidays();
+                      setLocal(() {});
+                    },
+                  ),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 14),
+            if (_holLoading)
+              Text('Loading…', style: _sans(13, C.ink2))
+            else if (upcoming.isEmpty)
+              Text('No public holidays found for this region.', style: _sans(13, C.ink2))
+            else
+              for (final h in upcoming.take(8))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 9),
+                  child: Row(children: [
+                    Expanded(child: Text(h.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: _sans(14, C.ink, FontWeight.w700))),
+                    Text('${h.date.year}/${h.date.month}/${h.date.day}', style: _mono(11, C.ink3)),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(5)),
+                      child: Text('${h.date.difference(t0).inDays}d',
+                          style: _mono(10.5, C.creamTxt).copyWith(fontWeight: FontWeight.w700)),
+                    ),
+                  ]),
+                ),
           ]),
-        ),
-      _demoNote('Hong Kong public holidays.'),
-    ]);
+        );
+      }),
+    );
   }
 
   void _showCalItem(BuildContext context, IconData icon, String name, String when) => _sheet(
