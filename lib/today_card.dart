@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'palette.dart';
 import 'services.dart';
 import 'store.dart';
+import 'calendar/gcal.dart';
 
 TextStyle _serif(double s, Color c) =>
     GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: s, color: c);
@@ -171,14 +172,14 @@ class _TodayCardState extends State<TodayCard> {
     final holName = _holLoading ? 'loading…' : (h == null ? 'none found' : h.name);
     final holDays = h == null ? null : _daysTo(h.date);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      padding: const EdgeInsets.fromLTRB(12, 6, 10, 6),
       child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _mini(wxIcon, C.mustard, '天氣 ${store.weatherPlace.toUpperCase()}', wxVal,
                 () => _showWeather(context)),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             _mini(
                 Icons.celebration_outlined,
                 h == null ? C.red : placeColor(h.country),
@@ -206,7 +207,7 @@ class _TodayCardState extends State<TodayCard> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(6),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
+          padding: const EdgeInsets.symmetric(vertical: 1),
           child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
             Icon(icon, size: 18, color: ic),
             const SizedBox(width: 8),
@@ -223,59 +224,153 @@ class _TodayCardState extends State<TodayCard> {
         ),
       );
 
-  Widget _calCol(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(11, 8, 11, 9),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Text('行事曆 CALENDAR', style: _mono(8, C.ink3).copyWith(letterSpacing: .6)),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: BoxDecoration(
-                  border: Border.all(color: C.mustard), borderRadius: BorderRadius.circular(4)),
-              child: Text('示範', style: _mono(7.5, C.mustard)),
-            ),
-          ]),
-          const SizedBox(height: 5),
-          _calItem(context, Icons.cake_outlined, "May's birthday", 'today'),
-          _calItem(context, Icons.push_pin_outlined, 'Dentist', '3pm'),
-          const SizedBox(height: 6),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('Demo — the real app connects Google Calendar'),
-                    duration: Duration(seconds: 2)),
-              ),
-              icon: const Icon(Icons.link, size: 14),
-              label: Text('Connect Google', style: _sans(11, C.navy)),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: C.navy,
-                side: const BorderSide(color: C.navy, width: 1.3),
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-              ),
-            ),
+  Widget _calCol(BuildContext context) => ListenableBuilder(
+        listenable: GCalService.instance,
+        builder: (context, _) {
+          final g = GCalService.instance;
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(11, 8, 11, 9),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Text('行事曆 CALENDAR', style: _mono(8, C.ink3).copyWith(letterSpacing: .6)),
+                const Spacer(),
+                if (g.isConnected)
+                  InkWell(
+                    onTap: () => _showCalendar(context),
+                    borderRadius: BorderRadius.circular(4),
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(Icons.tune, size: 14, color: C.navy),
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                        border: Border.all(color: C.mustard),
+                        borderRadius: BorderRadius.circular(4)),
+                    child: Text('示範', style: _mono(7.5, C.mustard)),
+                  ),
+              ]),
+              const SizedBox(height: 5),
+              ..._calBody(context, g),
+            ]),
+          );
+        },
+      );
+
+  List<Widget> _calBody(BuildContext context, GCalService g) {
+    // Mobile / unsupported: keep the sample rows (calendar is web-only for now).
+    if (!g.supported) {
+      return [
+        _calSample(Icons.cake_outlined, "May's birthday", 'today'),
+        _calSample(Icons.push_pin_outlined, 'Dentist', '3pm'),
+        const SizedBox(height: 4),
+        Text('Link Google Calendar in the web app',
+            style: _sans(10, C.ink3, FontWeight.w500)),
+      ];
+    }
+    if (g.isConnected) {
+      final ev = g.events;
+      if (ev.isEmpty) {
+        return [
+          Text('No upcoming events', style: _sans(12, C.ink2)),
+          const SizedBox(height: 4),
+          Text('Tap ⋯ to pick calendars', style: _sans(10, C.ink3, FontWeight.w500)),
+        ];
+      }
+      return [
+        for (final e in ev.take(3)) _calEventItem(context, e),
+      ];
+    }
+    // idle / connecting / error
+    return [
+      if (g.stage == GCalStage.error && g.message != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(g.message!, style: _sans(11, C.red, FontWeight.w500)),
+        ),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: g.isBusy ? null : () => g.connect(),
+          icon: g.isBusy
+              ? const SizedBox(
+                  width: 13,
+                  height: 13,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: C.navy))
+              : const Icon(Icons.link, size: 14),
+          label: Text(g.isBusy ? 'Connecting…' : 'Connect Google', style: _sans(11, C.navy)),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: C.navy,
+            side: const BorderSide(color: C.navy, width: 1.3),
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
           ),
+        ),
+      ),
+    ];
+  }
+
+  Widget _calSample(IconData icon, String name, String when) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(children: [
+          Icon(icon, size: 14, color: C.ink2),
+          const SizedBox(width: 7),
+          Expanded(
+              child: Text(name,
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: _sans(12, C.ink, FontWeight.w600))),
+          Text(when, style: _mono(9.5, C.ink3)),
         ]),
       );
 
-  Widget _calItem(BuildContext context, IconData icon, String name, String when) => InkWell(
-        onTap: () => _showCalItem(context, icon, name, when),
+  Widget _calEventItem(BuildContext context, GCalEvent e) => InkWell(
+        onTap: () => _showCalendar(context),
         borderRadius: BorderRadius.circular(5),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 3),
           child: Row(children: [
-            Icon(icon, size: 14, color: C.ink2),
-            const SizedBox(width: 7),
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: e.color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 8),
             Expanded(
-                child: Text(name,
+                child: Text(e.title,
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: _sans(12, C.ink, FontWeight.w600))),
-            Text(when, style: _mono(9.5, C.ink3)),
+            const SizedBox(width: 6),
+            Text(_evWhen(e), style: _mono(9.5, C.ink3)),
           ]),
         ),
       );
+
+  /// Compact "when" label for an event: today/tmr/weekday/date + time.
+  String _evWhen(GCalEvent e) {
+    final now = DateTime.now();
+    final t0 = DateTime(now.year, now.month, now.day);
+    final d0 = DateTime(e.start.year, e.start.month, e.start.day);
+    final days = d0.difference(t0).inDays;
+    String day;
+    if (days == 0) {
+      day = 'today';
+    } else if (days == 1) {
+      day = 'tmr';
+    } else if (days > 1 && days < 7) {
+      day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][e.start.weekday % 7];
+    } else {
+      const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      day = '${e.start.day} ${mon[e.start.month - 1]}';
+    }
+    if (e.allDay) return day;
+    final h = e.start.hour;
+    final m = e.start.minute.toString().padLeft(2, '0');
+    final ap = h < 12 ? 'a' : 'p';
+    final h12 = h % 12 == 0 ? 12 : h % 12;
+    final time = m == '00' ? '$h12$ap' : '$h12:$m$ap';
+    return days == 0 ? time : '$day $time';
+  }
 
   // ---------------- detail sheets ----------------
   void _sheet(BuildContext context, String zh, String en, Color color,
@@ -302,19 +397,6 @@ class _TodayCardState extends State<TodayCard> {
     );
   }
 
-  Widget _demoNote(String text) => Padding(
-        padding: const EdgeInsets.only(top: 12),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-            decoration: BoxDecoration(
-                border: Border.all(color: C.mustard), borderRadius: BorderRadius.circular(4)),
-            child: Text('示範 DEMO', style: _mono(8, C.mustard)),
-          ),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text, style: _sans(11.5, C.ink2))),
-        ]),
-      );
 
   void _showWeather(BuildContext context) {
     const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -553,17 +635,108 @@ class _TodayCardState extends State<TodayCard> {
     );
   }
 
-  void _showCalItem(BuildContext context, IconData icon, String name, String when) => _sheet(
-        context, '行事曆', 'EVENT', C.navy, icon, [
-          Text(name, style: _serif(20, C.ink)),
-          const SizedBox(height: 6),
-          Row(children: [
-            const Icon(Icons.schedule, size: 15, color: C.ink3),
+  void _showCalendar(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: C.paper2,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => ListenableBuilder(
+        listenable: GCalService.instance,
+        builder: (context, _) {
+          final g = GCalService.instance;
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.event_outlined, size: 22, color: C.navy),
+                    const SizedBox(width: 10),
+                    Text('行事曆', style: _serif(20, C.navy)),
+                    const SizedBox(width: 8),
+                    Text('CALENDAR', style: _mono(11, C.ink3).copyWith(letterSpacing: 1)),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => g.disconnect(),
+                      style: TextButton.styleFrom(foregroundColor: C.red),
+                      child: Text('Disconnect', style: _sans(12, C.red)),
+                    ),
+                  ]),
+                  const SizedBox(height: 6),
+                  // ---- sub-calendar picker ----
+                  Text('SHOW THESE CALENDARS',
+                      style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final c in g.calendars)
+                        _calChip(c, g.isSelected(c.id), () => g.toggleCalendar(c.id)),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Text('UPCOMING', style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
+                  const SizedBox(height: 8),
+                  if (g.events.isEmpty)
+                    Text('Nothing in the next three weeks.', style: _sans(13, C.ink2))
+                  else
+                    for (final e in g.events) _calFullItem(e),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _calChip(GCalCalendar c, bool on, VoidCallback onTap) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          decoration: BoxDecoration(
+            color: on ? c.color : C.paper,
+            border: Border.all(color: c.color, width: 1.5),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(on ? Icons.check : Icons.circle_outlined,
+                size: 13, color: on ? Colors.white : c.color),
             const SizedBox(width: 6),
-            Text(when, style: _sans(13, C.ink2)),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 180),
+              child: Text(c.summary,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _sans(12.5, on ? Colors.white : C.ink)),
+            ),
           ]),
-          _demoNote('Sample event — connect Google Calendar to see your real birthdays & events here.'),
-        ]);
+        ),
+      );
+
+  Widget _calFullItem(GCalEvent e) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: e.color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Text(e.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: _sans(14, C.ink, FontWeight.w600))),
+          const SizedBox(width: 10),
+          Text(_evWhen(e), style: _mono(11, C.ink2)),
+        ]),
+      );
 
   Widget _enamel({required Widget child}) => Container(
         decoration: BoxDecoration(

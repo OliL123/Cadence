@@ -10,6 +10,7 @@ import 'mahjong_page.dart';
 import 'home_widget_bridge.dart';
 import 'supabase_config.dart';
 import 'sync.dart';
+import 'calendar/gcal.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,8 @@ void main() async {
   } catch (_) {
     // sync unavailable (offline / config) — app still works locally
   }
+  // Google Calendar (web): silently reconnects if the user linked it before.
+  GCalService.instance.init();
   runApp(const CadenceApp());
 }
 
