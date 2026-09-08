@@ -33,6 +33,7 @@ extension type _OverrideConfig._(JSObject _) implements JSObject {
 extension type _TokenResponse(JSObject _) implements JSObject {
   external String? get access_token;
   external String? get error;
+  external int? get expires_in;
 }
 
 bool get gcalAuthSupported => true;
@@ -58,13 +59,13 @@ Future<bool> _waitForGis() async {
 ///
 /// [interactive] true shows Google's account/consent popup; false attempts a
 /// silent refresh (works only if the user has already granted access this
-/// browser session / recently). Returns null if it fails or is dismissed.
-Future<String?> getCalendarToken({required bool interactive}) async {
+/// browser session / recently). Returns (token, secondsUntilExpiry) or null.
+Future<(String, int)?> getCalendarToken({required bool interactive}) async {
   if (!await _waitForGis()) return null;
-  final completer = Completer<String?>();
+  final completer = Completer<(String, int)?>();
 
-  void done(String? token) {
-    if (!completer.isCompleted) completer.complete(token);
+  void done((String, int)? result) {
+    if (!completer.isCompleted) completer.complete(result);
   }
 
   final config = _TokenConfig(
@@ -73,7 +74,7 @@ Future<String?> getCalendarToken({required bool interactive}) async {
     prompt: interactive ? 'consent' : '',
     callback: ((_TokenResponse resp) {
       final t = resp.access_token;
-      done((t != null && t.isNotEmpty) ? t : null);
+      done((t != null && t.isNotEmpty) ? (t, resp.expires_in ?? 3600) : null);
     }).toJS,
     error_callback: ((JSObject _) => done(null)).toJS,
   );

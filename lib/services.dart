@@ -24,11 +24,19 @@ class DayForecast {
   DayForecast(this.date, this.code, this.max, this.min);
 }
 
+class HourForecast {
+  final DateTime time;
+  final int code;
+  final double temp;
+  HourForecast(this.time, this.code, this.temp);
+}
+
 class WeatherData {
   final double temp;
   final int code;
   final List<DayForecast> days;
-  WeatherData(this.temp, this.code, this.days);
+  final List<HourForecast> hours;
+  WeatherData(this.temp, this.code, this.days, this.hours);
 }
 
 class GeoPlace {
@@ -44,6 +52,7 @@ Future<WeatherData?> fetchWeather(double lat, double lon) async {
     final uri = Uri.parse(
         'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon'
         '&current=temperature_2m,weather_code'
+        '&hourly=temperature_2m,weather_code'
         '&daily=weather_code,temperature_2m_max,temperature_2m_min'
         '&timezone=auto&forecast_days=5');
     final r = await _get(uri);
@@ -60,8 +69,24 @@ Future<WeatherData?> fetchWeather(double lat, double lon) async {
         DayForecast(DateTime.parse(times[i]), (codes[i] as num).toInt(),
             (maxs[i] as num).toDouble(), (mins[i] as num).toDouble()),
     ];
-    return WeatherData(
-        (cur['temperature_2m'] as num).toDouble(), (cur['weather_code'] as num).toInt(), days);
+    // hourly: keep from the current hour onward
+    final hours = <HourForecast>[];
+    final h = j['hourly'] as Map<String, dynamic>?;
+    if (h != null) {
+      final ht = (h['time'] as List).cast<String>();
+      final hc = (h['weather_code'] as List);
+      final htemp = (h['temperature_2m'] as List);
+      final nowHour = DateTime.now();
+      for (var i = 0; i < ht.length; i++) {
+        final t = DateTime.parse(ht[i]);
+        if (t.isBefore(DateTime(nowHour.year, nowHour.month, nowHour.day, nowHour.hour))) {
+          continue;
+        }
+        hours.add(HourForecast(t, (hc[i] as num).toInt(), (htemp[i] as num).toDouble()));
+      }
+    }
+    return WeatherData((cur['temperature_2m'] as num).toDouble(),
+        (cur['weather_code'] as num).toInt(), days, hours);
   } catch (_) {
     return null;
   }
