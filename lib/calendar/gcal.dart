@@ -33,22 +33,31 @@ class GCalService extends ChangeNotifier {
 
   static const _kConnected = 'gcal_connected';
   static const _kSelected = 'gcal_selected';
+  static const _kToken = 'gcal_token';
+  static const _kTokenExp = 'gcal_token_exp'; // ms-since-epoch expiry
 
   GCalStage stage = GCalStage.idle;
   String? message;
   String? _token;
+  DateTime? _tokenExp;
   List<GCalCalendar> calendars = []; // full list from the account
   List<GCalEvent> events = []; // upcoming events from the selected calendars
   List<String> _selected = []; // selected calendar ids
 
   bool _wantConnected = false;
 
+  bool get _tokenValid =>
+      _token != null &&
+      _tokenExp != null &&
+      _tokenExp!.isAfter(DateTime.now().add(const Duration(minutes: 1)));
+
   bool get supported => auth.gcalAuthSupported;
   bool get isConnected => stage == GCalStage.connected;
   bool get isBusy => stage == GCalStage.connecting;
   List<String> get selectedIds => _selected;
 
-  /// Load saved prefs and, if the user connected before, try a silent reconnect.
+  /// Load saved prefs. Reuse a still-valid cached token (so a refresh doesn't
+  /// re-prompt); otherwise try a silent reconnect if the user linked before.
   Future<void> init() async {
     final p = await SharedPreferences.getInstance();
     _wantConnected = p.getBool(_kConnected) ?? false;
@@ -58,8 +67,17 @@ class GCalService extends ChangeNotifier {
         _selected = (jsonDecode(raw) as List).map((e) => e as String).toList();
       } catch (_) {}
     }
-    if (supported && _wantConnected) {
-      // silent, non-blocking
+    final savedTok = p.getString(_kToken);
+    final savedExp = p.getInt(_kTokenExp);
+    if (savedTok != null && savedExp != null) {
+      _token = savedTok;
+      _tokenExp = DateTime.fromMillisecondsSinceEpoch(savedExp);
+    }
+    if (!supported || !_wantConnected) return;
+    if (_tokenValid) {
+      // Cached token is still good — go straight to connected, no popup.
+      unawaited(_afterAuth());
+    } else {
       unawaited(_reconnect());
     }
   }
@@ -68,12 +86,25 @@ class GCalService extends ChangeNotifier {
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kConnected, _wantConnected);
     await p.setString(_kSelected, jsonEncode(_selected));
+    if (_token != null && _tokenExp != null) {
+      await p.setString(_kToken, _token!);
+      await p.setInt(_kTokenExp, _tokenExp!.millisecondsSinceEpoch);
+    } else {
+      await p.remove(_kToken);
+      await p.remove(_kTokenExp);
+    }
+  }
+
+  void _storeToken((String, int) tok) {
+    _token = tok.$1;
+    _tokenExp = DateTime.now().add(Duration(seconds: tok.$2));
   }
 
   Future<void> _reconnect() async {
     final t = await auth.getCalendarToken(interactive: false);
     if (t == null) return; // stay idle; the Connect button remains
-    _token = t;
+    _storeToken(t);
+    await _save();
     await _afterAuth();
   }
 
@@ -94,7 +125,7 @@ class GCalService extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    _token = t;
+    _storeToken(t);
     _wantConnected = true;
     await _save();
     await _afterAuth();
@@ -102,6 +133,7 @@ class GCalService extends ChangeNotifier {
 
   Future<void> disconnect() async {
     _token = null;
+    _tokenExp = null;
     _wantConnected = false;
     calendars = [];
     events = [];

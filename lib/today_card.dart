@@ -125,9 +125,9 @@ class _TodayCardState extends State<TodayCard> {
             child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Expanded(flex: 22, child: _dateCol(now)),
               _vdiv(),
-              Expanded(flex: 19, child: _infoCol(context)),
+              Expanded(flex: 23, child: _infoCol(context)),
               _vdiv(),
-              Expanded(flex: 24, child: _calCol(context)),
+              Expanded(flex: 20, child: _calCol(context)),
             ]),
           );
         }),
@@ -139,12 +139,12 @@ class _TodayCardState extends State<TodayCard> {
   Widget _hdiv() => Container(height: 2, color: C.red);
 
   Widget _dateCol(DateTime now) => Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+        padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('${now.year}年${now.month}月${now.day}日', style: _serif(18, C.red)),
           const SizedBox(height: 3),
           Text('${_ganzhi(now.year)} · ${_zodiac(now.year)}', style: _sans(11.5, C.ink2)),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           RichText(
             text: TextSpan(children: [
               TextSpan(text: '宜 開工', style: _sans(12, C.greenD)),
@@ -159,7 +159,6 @@ class _TodayCardState extends State<TodayCard> {
       .difference(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day))
       .inDays;
 
-  String _hdays(int d) => d == 0 ? 'today' : (d == 1 ? 'tmr' : '$d days');
 
   Widget _infoCol(BuildContext context) {
     final wxIcon = _wx == null ? Icons.wb_sunny_outlined : weatherInfo(_wx!.code).$2;
@@ -179,27 +178,61 @@ class _TodayCardState extends State<TodayCard> {
           children: [
             _mini(wxIcon, C.mustard, '天氣 ${store.weatherPlace.toUpperCase()}', wxVal,
                 () => _showWeather(context)),
-            const SizedBox(height: 10),
-            _mini(
-                Icons.celebration_outlined,
+            const SizedBox(height: 6),
+            _holidayRow(
+                context,
                 h == null ? C.red : placeColor(h.country),
                 '假期 ${store.holidayCountries.join(' · ')}',
                 holName,
-                () => _showHolidays(context),
-                trailing: holDays == null
-                    ? null
-                    : _countPill(holDays, placeColor(h!.country))),
+                holDays),
           ]),
     );
   }
 
-  /// A small day-countdown badge, e.g. "34 days" / "tmr" / "today".
-  Widget _countPill(int days, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(6)),
-        child: Text(_hdays(days),
-            style: _mono(10, Colors.white).copyWith(letterSpacing: .3)),
+  /// The "next holiday" row: a compact day-count badge sits before the holiday
+  /// name so the number is clearly a countdown to that named holiday.
+  Widget _holidayRow(
+          BuildContext context, Color color, String label, String name, int? days) =>
+      InkWell(
+        onTap: () => _showHolidays(context),
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 1),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            Icon(Icons.celebration_outlined, size: 18, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('$label · NEXT',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _mono(8, C.ink3).copyWith(letterSpacing: .8)),
+                Row(children: [
+                  if (days != null) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration:
+                          BoxDecoration(color: color, borderRadius: BorderRadius.circular(5)),
+                      child: Text(_hdaysShort(days),
+                          style: _mono(9.5, Colors.white).copyWith(letterSpacing: .2)),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  Flexible(
+                    child: Text(name,
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: _sans(12.5, C.ink)),
+                  ),
+                ]),
+              ]),
+            ),
+            const SizedBox(width: 2),
+            const Icon(Icons.chevron_right, size: 15, color: C.ink3),
+          ]),
+        ),
       );
+
+  /// Compact countdown for the badge: "today" / "tmr" / "24d".
+  String _hdaysShort(int d) => d == 0 ? 'today' : (d == 1 ? 'tmr' : '${d}d');
 
   Widget _mini(IconData icon, Color ic, String label, String value, VoidCallback onTap,
           {Widget? trailing}) =>
@@ -416,7 +449,24 @@ class _TodayCardState extends State<TodayCard> {
                 style: _sans(13, C.ink2)),
           ),
         ]),
-        const SizedBox(height: 16),
+        if (_wx!.hours.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          Text('稍後 · LATER TODAY', style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final h in _wx!.hours.take(14))
+                Padding(
+                  padding: const EdgeInsets.only(right: 14),
+                  child: _hourTile(h),
+                ),
+            ]),
+          ),
+        ],
+        const SizedBox(height: 18),
+        Text('未來五日 · 5-DAY', style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
+        const SizedBox(height: 8),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           for (final d in _wx!.days.take(5))
             _fc(wd[d.date.weekday - 1], '${d.max.round()}°', weatherInfo(d.code).$2),
@@ -512,6 +562,22 @@ class _TodayCardState extends State<TodayCard> {
         const SizedBox(height: 4),
         Text(temp, style: _mono(12, C.ink)),
       ]);
+
+  Widget _hourTile(HourForecast h) {
+    final now = DateTime.now();
+    final label = (h.time.year == now.year && h.time.month == now.month &&
+            h.time.day == now.day && h.time.hour == now.hour)
+        ? 'now'
+        : (h.time.hour % 12 == 0 ? 12 : h.time.hour % 12).toString() +
+            (h.time.hour < 12 ? 'a' : 'p');
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Text(label, style: _mono(10, C.ink3)),
+      const SizedBox(height: 6),
+      Icon(weatherInfo(h.code).$2, size: 18, color: C.mustard),
+      const SizedBox(height: 6),
+      Text('${h.temp.round()}°', style: _mono(12, C.ink)),
+    ]);
+  }
 
   Widget _regionChip(String code, String label, bool on, VoidCallback onTap) {
     final col = placeColor(code);

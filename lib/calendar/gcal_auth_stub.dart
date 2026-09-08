@@ -12,15 +12,17 @@ final GoogleSignIn _gsi = GoogleSignIn(scopes: const [googleCalendarScope]);
 /// google_sign_in platform implementation), so hide the button there.
 bool get gcalAuthSupported => Platform.isAndroid || Platform.isIOS;
 
-/// Returns an OAuth access token for the read-only Calendar scope, or null.
-/// [interactive] true shows the account picker; false tries a silent sign-in.
-Future<String?> getCalendarToken({required bool interactive}) async {
+/// Returns (access token, secondsUntilExpiry) for the read-only Calendar scope,
+/// or null. [interactive] true shows the account picker; false is silent.
+/// google_sign_in refreshes its own token, so the expiry here is just a hint.
+Future<(String, int)?> getCalendarToken({required bool interactive}) async {
   try {
     GoogleSignInAccount? account =
         interactive ? await _gsi.signIn() : await _gsi.signInSilently();
     if (account == null) return null;
     final tokens = await account.authentication;
-    return tokens.accessToken;
+    final t = tokens.accessToken;
+    return t == null ? null : (t, 3000);
   } catch (_) {
     return null;
   }
