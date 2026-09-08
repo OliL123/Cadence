@@ -31,9 +31,12 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Disable R8/resource shrinking: it stripped androidx.work/Room classes
+            // that home_widget needs, crashing the release build on startup.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
