@@ -148,7 +148,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _addGroup = store.groups.first.key;
             }
             return LayoutBuilder(builder: (context, c) {
-              return c.maxWidth >= 940 ? _wideLayout() : _narrowLayout();
+              return c.maxWidth >= 1040 ? _wideLayout() : _stackedLayout(c.maxWidth);
             });
           },
         ),
@@ -157,16 +157,106 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // ---------------- layouts ----------------
-  Widget _narrowLayout() => Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 860),
-          child: Column(children: [
-            _toolbar(),
-            Expanded(child: store.viewMode == 'board' ? _boardView() : _sectionsList()),
-            _addBar(),
+  /// Single scrolling column for tablets, phones, and foldable/flip cover
+  /// screens (fluid down to ~280px). Everything present, just stacked.
+  Widget _stackedLayout(double w) {
+    final compact = w < 560; // phone
+    final pad = compact ? 10.0 : 16.0;
+    return Container(
+      color: C.paper2,
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(pad, pad, pad, 24),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _masthead(),
+          const SizedBox(height: 12),
+          const TodayCard(),
+          const SizedBox(height: 16),
+          _enamel(
+            edge: C.green,
+            padding: EdgeInsets.zero,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(5),
+              child: Column(children: [
+                _tasksHeader(),
+                _dueSoonBanner(),
+                _groupChips(),
+                const SizedBox(height: 4),
+                if (store.viewMode == 'board')
+                  SizedBox(height: 420, child: _boardView())
+                else
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                    child: Column(children: [
+                      for (final g in _groupsToShow()) ..._section(g),
+                      _addGroupTile(),
+                      if (store.showDone) ...[
+                        const SizedBox(height: 12),
+                        ..._doneSection(),
+                      ],
+                    ]),
+                  ),
+                _addBar(),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 440,
+            child: _enamel(
+              edge: C.green,
+              padding: EdgeInsets.zero,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(5),
+                child: const FocusWall(showHeader: true),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// Horizontal group filter for narrow layouts (replaces the side rail).
+  Widget _groupChips() => Container(
+        height: 40,
+        padding: const EdgeInsets.only(left: 12, right: 12, top: 2),
+        child: ListView(scrollDirection: Axis.horizontal, children: [
+          _groupChip('all', 'All 全部', C.greenD,
+              store.tasks.where((t) => !t.done).length),
+          for (final g in store.groups)
+            _groupChip(g.key, '${g.name} ${g.zh}', g.c,
+                store.tasksIn(g.key).where((t) => !t.done).length),
+        ]),
+      );
+
+  Widget _groupChip(String key, String label, Color color, int count) {
+    final on = store.filter == key;
+    return Padding(
+      padding: const EdgeInsets.only(right: 7),
+      child: GestureDetector(
+        onTap: () => store.setFilter(key),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? color : C.paper,
+            border: Border.all(color: color, width: 1.4),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(label,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: on ? C.creamTxt : C.ink)),
+            const SizedBox(width: 6),
+            Text('$count',
+                style: mono(size: 10, color: on ? C.creamTxt : C.ink3)),
           ]),
         ),
-      );
+      ),
+    );
+  }
 
   Widget _wideLayout() => Center(
         child: ConstrainedBox(
@@ -174,13 +264,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(children: [
-              IntrinsicHeight(
-                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Expanded(child: _masthead()),
-                  const SizedBox(width: 14),
-                  const SizedBox(width: 470, child: TodayCard()),
-                ]),
-              ),
+              // NB: a plain stretch-Row (no IntrinsicHeight) equalises the two
+              // card heights. IntrinsicHeight can't be used here — the masthead
+              // has a Wrap and TodayCard a LayoutBuilder, neither of which can
+              // answer intrinsic-dimension queries (it blanks the whole page).
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: _masthead()),
+                const SizedBox(width: 14),
+                const SizedBox(width: 470, child: TodayCard()),
+              ]),
               const SizedBox(height: 16),
               Expanded(child: _board()),
             ]),
@@ -332,17 +424,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _tasksHeader() => Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 12, 6),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Text('TASKS',
-                style: disp(size: 22, w: FontWeight.w700, color: C.ink)
-                    .copyWith(letterSpacing: .4)),
-            const SizedBox(width: 8),
-            Text('待辦', style: serifHk(size: 18, color: C.red)),
-            const Spacer(),
-            _doneToggleBtn(),
-            const SizedBox(width: 8),
-            _viewSwitch(),
-          ]),
+          LayoutBuilder(builder: (ctx, c) {
+            final title = Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('TASKS',
+                  style: disp(size: 22, w: FontWeight.w700, color: C.ink)
+                      .copyWith(letterSpacing: .4)),
+              const SizedBox(width: 8),
+              Text('待辦', style: serifHk(size: 18, color: C.red)),
+            ]);
+            if (c.maxWidth < 520) {
+              // stack: title, then the buttons (wrapping if very narrow)
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                title,
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  _doneToggleBtn(),
+                  _viewSwitch(),
+                ]),
+              ]);
+            }
+            return Row(children: [
+              title,
+              const Spacer(),
+              _doneToggleBtn(),
+              const SizedBox(width: 8),
+              _viewSwitch(),
+            ]);
+          }),
           const SizedBox(height: 6),
           Text.rich(
             TextSpan(children: [
@@ -372,19 +480,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         border: Border.all(color: C.red.withValues(alpha: .5), width: 1.3),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        const Icon(Icons.warning_amber_rounded, size: 16, color: C.red),
-        const SizedBox(width: 7),
-        Text('就到期', style: serifHk(size: 13, color: C.red)),
-        const SizedBox(width: 5),
-        Text('DUE SOON',
-            style: mono(size: 8.5, color: C.red).copyWith(letterSpacing: .8)),
-        const SizedBox(width: 11),
-        Expanded(
-          child: Wrap(spacing: 8, runSpacing: 6, children: [
-            for (final t in soon) _dueSoonChip(t),
-          ]),
-        ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.warning_amber_rounded, size: 16, color: C.red),
+          const SizedBox(width: 7),
+          Text('就到期', style: serifHk(size: 13, color: C.red)),
+          const SizedBox(width: 5),
+          Text('DUE SOON',
+              style: mono(size: 8.5, color: C.red).copyWith(letterSpacing: .8)),
+        ]),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 6, children: [
+          for (final t in soon) _dueSoonChip(t),
+        ]),
       ]),
     );
   }
@@ -399,9 +507,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             borderRadius: BorderRadius.circular(6),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text(t.title,
-                style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w600, color: C.ink)),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 150),
+              child: Text(t.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600, color: C.ink)),
+            ),
             const SizedBox(width: 6),
             Text(store.dueLabel(t) ?? '',
                 style: mono(size: 11, color: C.red).copyWith(fontWeight: FontWeight.w700)),
@@ -410,29 +523,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
   // ---------------- toolbar / view switch / groups ----------------
-  Widget _toolbar() => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-        child: Row(children: [
-          _viewSwitch(),
-          const Spacer(),
-          _mahjongBtn(),
-          const SizedBox(width: 8),
-          _doneToggleBtn(),
-        ]),
-      );
-
-  Widget _mahjongBtn() => FilledButton(
-        onPressed: () => Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const MahjongPage())),
-        style: FilledButton.styleFrom(
-          backgroundColor: C.green,
-          foregroundColor: C.creamTxt,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
-        ),
-        child: Text('麻雀', style: serifHk(size: 14, color: C.creamTxt)),
-      );
-
   Widget _viewSwitch() {
     Widget seg(String v, String label) {
       final on = store.viewMode == v;
@@ -478,22 +568,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
     );
   }
-
-  Widget _sectionsList() => ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-        children: [
-          _masthead(),
-          const SizedBox(height: 14),
-          const TodayCard(),
-          const SizedBox(height: 22),
-          for (final g in store.groups) ..._section(g),
-          _addGroupTile(),
-          if (store.showDone) ...[
-            const SizedBox(height: 20),
-            ..._doneSection(),
-          ],
-        ],
-      );
 
   Widget _boardView() => ScrollConfiguration(
         behavior: const _DragScrollBehavior(),
@@ -921,31 +995,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: C.red, width: 1.5),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: Text('香港製造 · MADE FOR ME',
-                        style: mono(size: 9.5, color: C.red, w: FontWeight.w700)
-                            .copyWith(letterSpacing: 1.6)),
-                  ),
-                  const Spacer(),
-                  _syncButton(),
-                ]),
-                const SizedBox(height: 11),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    Text('節奏',
-                        style: serifHk(size: 54, color: C.red).copyWith(height: 1)),
-                    const SizedBox(width: 14),
-                    Text('CADENCE',
-                        style: disp(size: 35, w: FontWeight.w700, color: C.greenD)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: C.red, width: 1.5),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Text('香港製造 · MADE FOR ME',
+                          style: mono(size: 9.5, color: C.red, w: FontWeight.w700)
+                              .copyWith(letterSpacing: 1.6)),
+                    ),
+                    _syncButton(),
                   ],
+                ),
+                const SizedBox(height: 11),
+                // scale-down so the title never overflows on narrow/fold screens
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text('節奏',
+                            style: serifHk(size: 54, color: C.red).copyWith(height: 1)),
+                        const SizedBox(width: 14),
+                        Text('CADENCE',
+                            style: disp(size: 35, w: FontWeight.w700, color: C.greenD)),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -1218,69 +1305,88 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
   // ---------------- add bar ----------------
-  Widget _addBar() => Container(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-        decoration: const BoxDecoration(
-          color: C.paper,
-          border: Border(top: BorderSide(color: C.line)),
+  Widget _addBar() {
+    final field = TextField(
+      controller: _addCtl,
+      textInputAction: TextInputAction.done,
+      onSubmitted: (_) => _submitAdd(),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: '＋ new task…',
+        filled: true,
+        fillColor: C.paper2,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: C.green, width: 1.5)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: C.mustard, width: 1.5)),
+      ),
+    );
+    final groupSel = Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+          color: C.paper2,
+          border: Border.all(color: C.green, width: 1.5),
+          borderRadius: BorderRadius.circular(8)),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _addGroup,
+          isDense: true,
+          style: const TextStyle(fontSize: 12, color: C.ink),
+          items: [
+            for (final g in store.groups)
+              DropdownMenuItem(value: g.key, child: Text(g.name, style: const TextStyle(fontSize: 12)))
+          ],
+          onChanged: (v) => setState(() => _addGroup = v ?? _addGroup),
         ),
-        child: Row(children: [
-          Expanded(
-            child: TextField(
-              controller: _addCtl,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _submitAdd(),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: '＋ new task…',
-                filled: true,
-                fillColor: C.paper2,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: C.green, width: 1.5)),
-                focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: C.mustard, width: 1.5)),
-              ),
-            ),
-          ),
+      ),
+    );
+    final addBtn = FilledButton(
+      onPressed: _submitAdd,
+      style: FilledButton.styleFrom(
+          backgroundColor: C.mustard,
+          foregroundColor: C.greenD,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+      child: Text('新增', style: serifHk(size: 13, color: C.greenD)),
+    );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+      decoration: const BoxDecoration(
+        color: C.paper,
+        border: Border(top: BorderSide(color: C.line)),
+      ),
+      child: LayoutBuilder(builder: (ctx, c) {
+        if (c.maxWidth < 470) {
+          // narrow: task field on its own line, controls below
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            field,
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(child: groupSel),
+              const SizedBox(width: 8),
+              _addDateBtn(),
+              const SizedBox(width: 8),
+              addBtn,
+            ]),
+          ]);
+        }
+        return Row(children: [
+          Expanded(child: field),
           const SizedBox(width: 8),
-          Container(
-            height: 44,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-                color: C.paper2,
-                border: Border.all(color: C.green, width: 1.5),
-                borderRadius: BorderRadius.circular(8)),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _addGroup,
-                isDense: true,
-                style: const TextStyle(fontSize: 12, color: C.ink),
-                items: [
-                  for (final g in store.groups)
-                    DropdownMenuItem(value: g.key, child: Text(g.name, style: const TextStyle(fontSize: 12)))
-                ],
-                onChanged: (v) => setState(() => _addGroup = v ?? _addGroup),
-              ),
-            ),
-          ),
+          groupSel,
           const SizedBox(width: 8),
           _addDateBtn(),
           const SizedBox(width: 8),
-          FilledButton(
-            onPressed: _submitAdd,
-            style: FilledButton.styleFrom(
-                backgroundColor: C.mustard,
-                foregroundColor: C.greenD,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-            child: Text('新增', style: serifHk(size: 13, color: C.greenD)),
-          ),
-        ]),
-      );
+          addBtn,
+        ]);
+      }),
+    );
+  }
 
   Widget _addDateBtn() {
     final has = _addDate != null;

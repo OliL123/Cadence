@@ -109,21 +109,33 @@ class _TodayCardState extends State<TodayCard> {
                     .copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
           ]),
         ),
-        // three columns
-        IntrinsicHeight(
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Expanded(flex: 22, child: _dateCol(now)),
-            _vdiv(),
-            Expanded(flex: 19, child: _infoCol(context)),
-            _vdiv(),
-            Expanded(flex: 24, child: _calCol(context)),
-          ]),
-        ),
+        // three columns side-by-side on wide, stacked on narrow
+        LayoutBuilder(builder: (context, c) {
+          if (c.maxWidth < 440) {
+            return Column(children: [
+              _dateCol(now),
+              _hdiv(),
+              _infoCol(context),
+              _hdiv(),
+              _calCol(context),
+            ]);
+          }
+          return IntrinsicHeight(
+            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Expanded(flex: 22, child: _dateCol(now)),
+              _vdiv(),
+              Expanded(flex: 19, child: _infoCol(context)),
+              _vdiv(),
+              Expanded(flex: 24, child: _calCol(context)),
+            ]),
+          );
+        }),
       ]),
     );
   }
 
   Widget _vdiv() => Container(width: 2, color: C.red);
+  Widget _hdiv() => Container(height: 2, color: C.red);
 
   Widget _dateCol(DateTime now) => Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
@@ -131,8 +143,7 @@ class _TodayCardState extends State<TodayCard> {
           Text('${now.year}年${now.month}月${now.day}日', style: _serif(18, C.red)),
           const SizedBox(height: 3),
           Text('${_ganzhi(now.year)} · ${_zodiac(now.year)}', style: _sans(11.5, C.ink2)),
-          const Spacer(),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           RichText(
             text: TextSpan(children: [
               TextSpan(text: '宜 開工', style: _sans(12, C.greenD)),
