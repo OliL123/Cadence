@@ -168,9 +168,8 @@ class _TodayCardState extends State<TodayCard> {
             ? 'tap to set'
             : '${_wx!.temp.round()}° ${weatherInfo(_wx!.code).$1}');
     final h = _nextHoliday();
-    final holVal = _holLoading
-        ? 'loading…'
-        : (h == null ? 'none found' : '${h.name} · ${_hdays(_daysTo(h.date))}');
+    final holName = _holLoading ? 'loading…' : (h == null ? 'none found' : h.name);
+    final holDays = h == null ? null : _daysTo(h.date);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
       child: Column(
@@ -184,19 +183,31 @@ class _TodayCardState extends State<TodayCard> {
                 Icons.celebration_outlined,
                 h == null ? C.red : placeColor(h.country),
                 '假期 ${store.holidayCountries.join(' · ')}',
-                holVal,
-                () => _showHolidays(context)),
+                holName,
+                () => _showHolidays(context),
+                trailing: holDays == null
+                    ? null
+                    : _countPill(holDays, placeColor(h!.country))),
           ]),
     );
   }
 
-  Widget _mini(IconData icon, Color ic, String label, String value, VoidCallback onTap) =>
+  /// A small day-countdown badge, e.g. "34 days" / "tmr" / "today".
+  Widget _countPill(int days, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(6)),
+        child: Text(_hdays(days),
+            style: _mono(10, Colors.white).copyWith(letterSpacing: .3)),
+      );
+
+  Widget _mini(IconData icon, Color ic, String label, String value, VoidCallback onTap,
+          {Widget? trailing}) =>
       InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(6),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
             Icon(icon, size: 18, color: ic),
             const SizedBox(width: 8),
             Expanded(
@@ -205,6 +216,8 @@ class _TodayCardState extends State<TodayCard> {
                 Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: _sans(12.5, C.ink)),
               ]),
             ),
+            if (trailing != null) ...[const SizedBox(width: 6), trailing],
+            const SizedBox(width: 2),
             const Icon(Icons.chevron_right, size: 15, color: C.ink3),
           ]),
         ),
