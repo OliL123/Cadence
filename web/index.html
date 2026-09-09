@@ -34,6 +34,29 @@
 
   <!-- Google Identity Services (for read-only Google Calendar sign-in) -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <!-- Auto-update: the deploy script stamps a build id here + into build.txt.
+       We poll build.txt and, when it changes, reload with a cache-busting query
+       so a new deploy is picked up without a manual hard refresh. -->
+  <script>window.__CADENCE_BUILD__ = "__BUILD_ID__";</script>
+  <script>
+    (function () {
+      var B = window.__CADENCE_BUILD__;
+      if (!B || B === "__BUILD_ID__") return; // dev build — no auto-update
+      async function check() {
+        try {
+          var r = await fetch("build.txt?ts=" + Date.now(), { cache: "no-store" });
+          if (!r.ok) return;
+          var v = (await r.text()).trim();
+          if (v && v !== B) location.replace("?v=" + encodeURIComponent(v));
+        } catch (e) {}
+      }
+      setInterval(check, 60000);
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) check();
+      });
+    })();
+  </script>
 </head>
 <body>
   <!--
