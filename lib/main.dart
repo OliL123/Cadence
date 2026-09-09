@@ -95,6 +95,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  static const _dailyGroupValue = '__daily__'; // add-bar selector: make a daily
   final _addCtl = TextEditingController();
   final _boardCtl = ScrollController();
   String _addGroup = store.groups.first.key;
@@ -508,7 +509,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _dueSoonChip(Task t) => GestureDetector(
-        onTap: () => _startEditTitle(t),
+        onTap: () => _pickDue(t),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
           decoration: BoxDecoration(
@@ -1512,7 +1513,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           style: const TextStyle(fontSize: 12, color: C.ink),
           items: [
             for (final g in store.groups)
-              DropdownMenuItem(value: g.key, child: Text(g.name, style: const TextStyle(fontSize: 12)))
+              DropdownMenuItem(value: g.key, child: Text(g.name, style: const TextStyle(fontSize: 12))),
+            const DropdownMenuItem(
+                value: _dailyGroupValue,
+                child: Text('每日 Daily',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: C.greenD))),
           ],
           onChanged: (v) => setState(() => _addGroup = v ?? _addGroup),
         ),
@@ -1621,7 +1626,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void _submitAdd() {
     final text = _addCtl.text.trim();
     if (text.isEmpty) return;
-    store.addTask(text, _addGroup, due: _addDate);
+    if (_addGroup == _dailyGroupValue) {
+      store.addDaily(text);
+    } else {
+      store.addTask(text, _addGroup, due: _addDate);
+    }
     _addCtl.clear();
     setState(() => _addDate = null);
   }
