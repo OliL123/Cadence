@@ -12,6 +12,8 @@ import 'supabase_config.dart';
 import 'sync.dart';
 import 'calendar/gcal.dart';
 import 'notifications.dart';
+import 'platform/apk_download_stub.dart'
+    if (dart.library.html) 'platform/apk_download_web.dart' as apk;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -674,6 +676,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
   // ---------------- sync ----------------
+  Widget _apkButton() => GestureDetector(
+        onTap: apk.downloadApk,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: C.green.withValues(alpha: .08),
+            border: Border.all(color: C.green, width: 1.3),
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.android, size: 13, color: C.greenD),
+            const SizedBox(width: 5),
+            Text('APK',
+                style: mono(size: 9.5, color: C.greenD, w: FontWeight.w700)
+                    .copyWith(letterSpacing: 1)),
+          ]),
+        ),
+      );
+
   Widget _syncButton() => ListenableBuilder(
         listenable: SyncService.instance,
         builder: (context, _) {
@@ -1039,7 +1060,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           style: mono(size: 9.5, color: C.red, w: FontWeight.w700)
                               .copyWith(letterSpacing: 1.6)),
                     ),
-                    _syncButton(),
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (apk.canDownloadApk) ...[
+                        _apkButton(),
+                        const SizedBox(width: 8),
+                      ],
+                      _syncButton(),
+                    ]),
                   ],
                 ),
                 const SizedBox(height: 16),
