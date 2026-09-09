@@ -33,6 +33,7 @@ class Task {
   List<SubTask> sub;
   bool open; // subtask panel expanded
   Tile? tile; // its mahjong tile while on the focus wall
+  int? doneAt; // ms-since-epoch when it was completed (for auto-clean)
 
   Task({
     required this.id,
@@ -46,6 +47,7 @@ class Task {
     List<SubTask>? sub,
     this.open = false,
     this.tile,
+    this.doneAt,
   }) : sub = sub ?? [];
 
   Map<String, dynamic> toJson() => {
@@ -60,6 +62,7 @@ class Task {
         'sub': sub.map((s) => s.toJson()).toList(),
         'open': open,
         'tile': tile?.toJson(),
+        'doneAt': doneAt,
       };
 
   factory Task.fromJson(Map<String, dynamic> j) => Task(
@@ -76,6 +79,7 @@ class Task {
             .toList(),
         open: j['open'] ?? false,
         tile: j['tile'] == null ? null : Tile.fromJson(j['tile'] as Map<String, dynamic>),
+        doneAt: j['doneAt'],
       );
 }
 

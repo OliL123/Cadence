@@ -1083,6 +1083,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final rows = store.tasks.where((t) => t.done).toList();
     return [
       _sectionHeader('Done', '完成', C.ink3, '${rows.length}'),
+      Padding(
+        padding: const EdgeInsets.only(left: 4, bottom: 8),
+        child: Text('clears automatically a week after completion',
+            style: mono(size: 10, color: C.ink3)),
+      ),
       for (final t in rows) _taskCard(t),
       const SizedBox(height: 20),
     ];
