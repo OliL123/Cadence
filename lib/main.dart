@@ -95,7 +95,6 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
-  static const _dailyGroupValue = '__daily__'; // add-bar selector: make a daily
   final _addCtl = TextEditingController();
   final _boardCtl = ScrollController();
   String _addGroup = store.groups.first.key;
@@ -508,29 +507,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _dueSoonChip(Task t) => GestureDetector(
-        onTap: () => _pickDue(t),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-          decoration: BoxDecoration(
-            color: C.paper2,
-            border: Border.all(color: C.line),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 150),
-              child: Text(t.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w600, color: C.ink)),
-            ),
-            const SizedBox(width: 6),
-            Text(store.dueLabel(t) ?? '',
-                style: mono(size: 11, color: C.red).copyWith(fontWeight: FontWeight.w700)),
-          ]),
+  // A due-soon chip is a read-only heads-up — no tap action (avoids accidental edits).
+  Widget _dueSoonChip(Task t) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: C.paper2,
+          border: Border.all(color: C.line),
+          borderRadius: BorderRadius.circular(6),
         ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 150),
+            child: Text(t.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600, color: C.ink)),
+          ),
+          const SizedBox(width: 6),
+          Text(store.dueLabel(t) ?? '',
+              style: mono(size: 11, color: C.red).copyWith(fontWeight: FontWeight.w700)),
+        ]),
       );
 
   // ---------------- toolbar / view switch / groups ----------------
@@ -1122,11 +1119,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // ---------------- daily rituals ----------------
   List<Widget> _dailySection() {
     final rows = store.dailies();
-    if (rows.isEmpty) return [];
+    // Only meaningful in the "All" view; hide when filtered to a single group.
+    if (store.filter != 'all') return [];
     final done = rows.where(store.dailyDoneToday).length;
     return [
-      _dailyHeader('$done/${rows.length}'),
-      for (final t in rows) _dailyRow(t),
+      _dailyHeader(rows.isEmpty ? '' : '$done/${rows.length}'),
+      if (rows.isEmpty)
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 14),
+          child: Text('tap ＋ to add a daily ritual (resets every day)',
+              style: mono(size: 10.5, color: C.ink3)),
+        )
+      else
+        for (final t in rows) _dailyRow(t),
       const SizedBox(height: 18),
     ];
   }
@@ -1514,10 +1519,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           items: [
             for (final g in store.groups)
               DropdownMenuItem(value: g.key, child: Text(g.name, style: const TextStyle(fontSize: 12))),
-            const DropdownMenuItem(
-                value: _dailyGroupValue,
-                child: Text('每日 Daily',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: C.greenD))),
           ],
           onChanged: (v) => setState(() => _addGroup = v ?? _addGroup),
         ),
@@ -1626,11 +1627,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void _submitAdd() {
     final text = _addCtl.text.trim();
     if (text.isEmpty) return;
-    if (_addGroup == _dailyGroupValue) {
-      store.addDaily(text);
-    } else {
-      store.addTask(text, _addGroup, due: _addDate);
-    }
+    store.addTask(text, _addGroup, due: _addDate);
     _addCtl.clear();
     setState(() => _addDate = null);
   }
