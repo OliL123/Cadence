@@ -34,6 +34,9 @@ class Task {
   bool open; // subtask panel expanded
   Tile? tile; // its mahjong tile while on the focus wall
   int? doneAt; // ms-since-epoch when it was completed (for auto-clean)
+  bool daily; // a recurring daily ritual (lives in the Daily section)
+  String? doneDate; // yyyy-mm-dd a daily was last ticked
+  int streak; // consecutive-day streak for a daily
 
   Task({
     required this.id,
@@ -48,6 +51,9 @@ class Task {
     this.open = false,
     this.tile,
     this.doneAt,
+    this.daily = false,
+    this.doneDate,
+    this.streak = 0,
   }) : sub = sub ?? [];
 
   Map<String, dynamic> toJson() => {
@@ -63,6 +69,9 @@ class Task {
         'open': open,
         'tile': tile?.toJson(),
         'doneAt': doneAt,
+        'daily': daily,
+        'doneDate': doneDate,
+        'streak': streak,
       };
 
   factory Task.fromJson(Map<String, dynamic> j) => Task(
@@ -80,6 +89,9 @@ class Task {
         open: j['open'] ?? false,
         tile: j['tile'] == null ? null : Tile.fromJson(j['tile'] as Map<String, dynamic>),
         doneAt: j['doneAt'],
+        daily: j['daily'] ?? false,
+        doneDate: j['doneDate'],
+        streak: j['streak'] ?? 0,
       );
 }
 

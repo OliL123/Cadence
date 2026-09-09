@@ -10,6 +10,7 @@ const _androidName = 'CadenceWidgetProvider';
 const _qualifiedAndroidName = 'com.oliver.cadence.CadenceWidgetProvider';
 const allDataKey = 'cadence_all'; // JSON: every task, active first then done
 const focusDataKey = 'cadence_focus'; // JSON: focus (starred) tasks, same order
+const dueDataKey = 'cadence_due'; // count of tasks due today (as a string)
 
 bool get _supported =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -30,10 +31,11 @@ Map<String, dynamic> _json(Task t) {
 Future<void> pushWallToWidget() async {
   if (!_supported) return;
   try {
-    // All page: active tasks first, completed ones below.
+    // All page: active tasks first, completed ones below. Dailies live in
+    // their own section in-app and are kept off the widget.
     final all = <Task>[
-      ...store.tasks.where((t) => !t.done),
-      ...store.tasks.where((t) => t.done),
+      ...store.tasks.where((t) => !t.done && !t.daily),
+      ...store.tasks.where((t) => t.done && !t.daily),
     ];
     // Focus page: active wall tiles (in wall order) first, then completed
     // focus tasks below so they stay visible instead of disappearing.
@@ -41,10 +43,17 @@ Future<void> pushWallToWidget() async {
       ...store.wallTasks(),
       ...store.tasks.where((t) => t.star && t.done),
     ];
+    final now = DateTime.now();
+    final dueToday = store.tasks.where((t) {
+      if (t.done || t.daily) return false;
+      final d = CadenceStore.parseISO(t.dueISO);
+      return d != null && d.year == now.year && d.month == now.month && d.day == now.day;
+    }).length;
     await HomeWidget.saveWidgetData<String>(
         allDataKey, jsonEncode(all.map(_json).toList()));
     await HomeWidget.saveWidgetData<String>(
         focusDataKey, jsonEncode(focus.map(_json).toList()));
+    await HomeWidget.saveWidgetData<String>(dueDataKey, '$dueToday');
     await HomeWidget.updateWidget(
       androidName: _androidName,
       qualifiedAndroidName: _qualifiedAndroidName,

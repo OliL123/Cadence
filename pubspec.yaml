@@ -53,6 +53,10 @@ dependencies:
   # Google Calendar sign-in on Android (web uses GIS directly instead)
   google_sign_in: ^6.2.1
 
+  # Local reminders for tasks with a due time (Android)
+  flutter_local_notifications: ^17.2.4
+  timezone: ^0.9.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

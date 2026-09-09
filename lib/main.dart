@@ -11,11 +11,13 @@ import 'home_widget_bridge.dart';
 import 'supabase_config.dart';
 import 'sync.dart';
 import 'calendar/gcal.dart';
+import 'notifications.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await store.load();
   await initHomeWidget();
+  Reminders.instance.init();
   try {
     await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
     SyncService.instance.start();
@@ -190,6 +192,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
                     child: Column(children: [
+                      ..._dailySection(),
                       for (final g in _groupsToShow()) ..._section(g),
                       _addGroupTile(),
                       if (store.showDone) ...[
@@ -225,10 +228,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         padding: const EdgeInsets.only(left: 12, right: 12, top: 2),
         child: ListView(scrollDirection: Axis.horizontal, children: [
           _groupChip('all', 'All 全部', C.greenD,
-              store.tasks.where((t) => !t.done).length),
+              store.tasks.where((t) => !t.done && !t.daily).length),
           for (final g in store.groups)
             _groupChip(g.key, '${g.name} ${g.zh}', g.c,
-                store.tasksIn(g.key).where((t) => !t.done).length),
+                store.tasksIn(g.key).where((t) => !t.done && !t.daily).length),
         ]),
       );
 
@@ -317,10 +320,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           Expanded(
             child: ListView(children: [
               _railItem('all', 'All', '全部', C.greenD,
-                  store.tasks.where((t) => !t.done).length),
+                  store.tasks.where((t) => !t.done && !t.daily).length),
               for (final g in store.groups)
                 _railItem(g.key, g.name, g.zh, g.c,
-                    store.tasksIn(g.key).where((t) => !t.done).length,
+                    store.tasksIn(g.key).where((t) => !t.done && !t.daily).length,
                     group: g),
               const SizedBox(height: 4),
               _addGroupTile(),
@@ -412,6 +415,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 : ListView(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                     children: [
+                      ..._dailySection(),
                       for (final g in _groupsToShow()) ..._section(g),
                       if (store.showDone) ...[
                         const SizedBox(height: 6),
@@ -442,6 +446,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 const SizedBox(height: 8),
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   _doneToggleBtn(),
+                  _sortBtn(),
                   _viewSwitch(),
                 ]),
               ]);
@@ -450,6 +455,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               title,
               const Spacer(),
               _doneToggleBtn(),
+              const SizedBox(width: 8),
+              _sortBtn(),
               const SizedBox(width: 8),
               _viewSwitch(),
             ]);
@@ -473,7 +480,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _dueSoonBanner() {
     if (store.viewMode == 'board') return const SizedBox.shrink();
     final soon =
-        store.tasks.where((t) => !t.done && store.soon(t)).toList();
+        store.tasks.where((t) => !t.done && !t.daily && store.soon(t)).toList();
     if (soon.isEmpty) return const SizedBox.shrink();
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -557,7 +564,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _doneToggleBtn() {
-    final n = store.tasks.where((t) => t.done).length;
+    final n = store.tasks.where((t) => t.done && !t.daily).length;
     return OutlinedButton(
       onPressed: () => store.setShowDone(!store.showDone),
       style: OutlinedButton.styleFrom(
@@ -569,6 +576,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
       child: Text('完成 Done ($n)',
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+    );
+  }
+
+  Widget _sortBtn() {
+    final byDue = store.sortMode == 'due';
+    return OutlinedButton.icon(
+      onPressed: () => store.setSortMode(byDue ? 'manual' : 'due'),
+      icon: Icon(byDue ? Icons.event_available_outlined : Icons.sort, size: 15),
+      label: Text(byDue ? 'By date' : 'Sort',
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: byDue ? C.creamTxt : C.ink2,
+        backgroundColor: byDue ? C.navy : C.paper2,
+        side: BorderSide(color: byDue ? C.navy : C.line, width: 1.5),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      ),
     );
   }
 
@@ -605,7 +629,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
   Widget _boardColumn(Group g) {
-    final rows = store.tasksIn(g.key).where((t) => !t.done).toList();
+    final rows = store.tasksIn(g.key).where((t) => !t.done && !t.daily).toList();
     return Container(
       width: 300,
       margin: const EdgeInsets.only(right: 14),
@@ -1045,8 +1069,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // ---------------- sections ----------------
   List<Widget> _section(Group g) {
-    final rows = store.tasksIn(g.key).where((t) => !t.done).toList();
-    final total = store.tasksIn(g.key).length;
+    final rows = store
+        .sortRows(store.tasksIn(g.key).where((t) => !t.done && !t.daily).toList());
+    final total = store.tasksIn(g.key).where((t) => !t.daily).length;
     // In the "All" view, don't show a header for a group whose only tasks are
     // already completed (unless the Done archive is being shown) — an empty
     // "0/1" section reads as if tasks still exist.
@@ -1080,7 +1105,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
   List<Widget> _doneSection() {
-    final rows = store.tasks.where((t) => t.done).toList();
+    final rows = store.tasks.where((t) => t.done && !t.daily).toList();
     return [
       _sectionHeader('Done', '完成', C.ink3, '${rows.length}'),
       Padding(
@@ -1091,6 +1116,142 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       for (final t in rows) _taskCard(t),
       const SizedBox(height: 20),
     ];
+  }
+
+  // ---------------- daily rituals ----------------
+  List<Widget> _dailySection() {
+    final rows = store.dailies();
+    if (rows.isEmpty) return [];
+    final done = rows.where(store.dailyDoneToday).length;
+    return [
+      _dailyHeader('$done/${rows.length}'),
+      for (final t in rows) _dailyRow(t),
+      const SizedBox(height: 18),
+    ];
+  }
+
+  Widget _dailyHeader(String count) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: C.greenD,
+          borderRadius: BorderRadius.circular(7),
+          boxShadow: const [BoxShadow(color: Color(0x24462D0F), offset: Offset(2, 2))],
+        ),
+        child: Row(children: [
+          Text('每日', style: serifHk(size: 14, color: C.creamTxt).copyWith(height: 1.1)),
+          const SizedBox(width: 8),
+          Text('DAILY',
+              style: disp(size: 12, w: FontWeight.w700, color: C.creamTxt)
+                  .copyWith(letterSpacing: .5)),
+          const Spacer(),
+          Text(count, style: mono(size: 11, color: C.creamTxt)),
+          const SizedBox(width: 9),
+          GestureDetector(
+            onTap: _addDaily,
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                  color: const Color(0x30FFFFFF), borderRadius: BorderRadius.circular(6)),
+              child: const Icon(Icons.add, size: 16, color: C.creamTxt),
+            ),
+          ),
+        ]),
+      );
+
+  Widget _dailyRow(Task t) {
+    final done = store.dailyDoneToday(t);
+    final streak = store.dailyStreak(t);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9, left: 2),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+        GestureDetector(
+          onTap: () => store.toggleDailyDone(t),
+          child: Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              color: done ? C.greenD : C.paper,
+              border: Border.all(color: C.greenD, width: 2),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: done ? const Icon(Icons.check, size: 13, color: C.creamTxt) : null,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _editingTaskId == t.id
+              ? TextField(
+                  controller: _editCtl,
+                  autofocus: true,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _commitEditTitle(t),
+                  onTapOutside: (_) => _commitEditTitle(t),
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w600, color: C.ink),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    filled: true,
+                    fillColor: C.paper,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(5),
+                        borderSide: const BorderSide(color: C.mustard, width: 1.5)),
+                    focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(5),
+                        borderSide: const BorderSide(color: C.mustard, width: 1.5)),
+                  ),
+                )
+              : GestureDetector(
+                  onTap: () => _startEditTitle(t),
+                  child: Text(t.title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: done ? C.ink3 : C.ink,
+                        decoration: done ? TextDecoration.lineThrough : null,
+                      )),
+                ),
+        ),
+        if (streak > 0) ...[
+          const Icon(Icons.local_fire_department, size: 15, color: C.mustard),
+          const SizedBox(width: 1),
+          Text('$streak', style: mono(size: 12, color: C.mustard)),
+          const SizedBox(width: 4),
+        ],
+        _dailyMenu(t),
+      ]),
+    );
+  }
+
+  Widget _dailyMenu(Task t) => PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert, size: 18, color: C.ink3),
+        padding: EdgeInsets.zero,
+        onSelected: (v) {
+          switch (v) {
+            case 'rename':
+              _startEditTitle(t);
+              break;
+            case 'stop':
+              store.setDaily(t, false);
+              break;
+            case 'del':
+              store.deleteTask(t);
+              break;
+          }
+        },
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'rename', child: _MenuRow(Icons.edit_outlined, 'Rename')),
+          const PopupMenuItem(
+              value: 'stop', child: _MenuRow(Icons.playlist_remove, 'Stop being daily')),
+          const PopupMenuItem(value: 'del', child: _MenuRow(Icons.delete_outline, 'Delete', danger: true)),
+        ],
+      );
+
+  void _addDaily() {
+    store.addDaily('New daily');
+    final rows = store.dailies();
+    if (rows.isNotEmpty) _startEditTitle(rows.first);
   }
 
   // ---------------- task card ----------------
@@ -1213,6 +1374,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             case 'move':
               _moveTask(t);
               break;
+            case 'daily':
+              store.setDaily(t, true);
+              break;
             case 'del':
               store.deleteTask(t);
               break;
@@ -1226,6 +1390,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   t.pri ? 'Clear priority (急)' : 'Mark priority (急)')),
           const PopupMenuItem(value: 'sub', child: _MenuRow(Icons.checklist, 'Add / show subtasks')),
           const PopupMenuItem(value: 'move', child: _MenuRow(Icons.drive_file_move_outline, 'Move to group…')),
+          const PopupMenuItem(value: 'daily', child: _MenuRow(Icons.repeat, 'Make it a daily')),
           const PopupMenuItem(value: 'del', child: _MenuRow(Icons.delete_outline, 'Delete', danger: true)),
         ],
       );
