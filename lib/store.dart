@@ -16,6 +16,7 @@ class CadenceStore extends ChangeNotifier {
   int streak = 0;
   int _dragCycle = 0;
   String viewMode = 'sections';
+  String sortMode = 'manual'; // 'manual' or 'due' (sort each group by due date)
   String filter = 'all'; // 'all' or a group key (left-rail selection)
   bool showDone = false;
   int updatedAt = 0; // ms since epoch of the last local change (for sync LWW)
@@ -92,6 +93,7 @@ class CadenceStore extends ChangeNotifier {
         'uid': _uid,
         'streak': streak,
         'viewMode': viewMode,
+        'sortMode': sortMode,
         'filter': filter,
         'showDone': showDone,
         'updatedAt': updatedAt,
@@ -113,6 +115,7 @@ class CadenceStore extends ChangeNotifier {
     _uid = j['uid'] ?? 0;
     streak = j['streak'] ?? 0;
     viewMode = j['viewMode'] ?? 'sections';
+    sortMode = j['sortMode'] ?? 'manual';
     filter = j['filter'] ?? 'all';
     showDone = j['showDone'] ?? false;
     updatedAt = j['updatedAt'] ?? 0;
@@ -351,6 +354,62 @@ class CadenceStore extends ChangeNotifier {
     _changed();
   }
 
+  // ---------- daily rituals ----------
+  static String _dateStr(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  String get _todayStr => _dateStr(DateTime.now());
+  String get _yestStr => _dateStr(DateTime.now().subtract(const Duration(days: 1)));
+
+  List<Task> dailies() => tasks.where((t) => t.daily).toList();
+
+  bool dailyDoneToday(Task t) => t.doneDate == _todayStr;
+
+  /// Streak in effect right now — 0 once a day has been missed.
+  int dailyStreak(Task t) {
+    if (t.doneDate == null) return 0;
+    if (t.doneDate == _todayStr || t.doneDate == _yestStr) return t.streak;
+    return 0;
+  }
+
+  /// Tick (or un-tick) today's completion of a daily, keeping the streak.
+  void toggleDailyDone(Task t) {
+    if (t.doneDate == _todayStr) {
+      t.streak = t.streak > 0 ? t.streak - 1 : 0;
+      t.doneDate = t.streak > 0 ? _yestStr : null;
+    } else {
+      final base = (t.doneDate == _yestStr) ? t.streak : 0;
+      t.streak = base + 1;
+      t.doneDate = _todayStr;
+    }
+    _changed();
+  }
+
+  void setDaily(Task t, bool v) {
+    t.daily = v;
+    if (v) {
+      // a daily lives only in the Daily section — drop task-list/ wall state
+      t.done = false;
+      t.doneAt = null;
+      if (t.star) {
+        wall.remove(t.id);
+        _returnTile(t.tile);
+        t.tile = null;
+        t.star = false;
+      }
+    } else {
+      t.doneDate = null;
+      t.streak = 0;
+    }
+    _changed();
+  }
+
+  void addDaily(String title) {
+    if (title.trim().isEmpty) return;
+    tasks.insert(0,
+        Task(id: _newId(), title: title.trim(), group: groups.first.key, daily: true));
+    _changed();
+  }
+
   /// Returns true if a tile was newly drawn onto the wall (for 自摸 detection).
   bool toggleStar(Task t) {
     if (t.done) return false; // a finished task can't be on the wall
@@ -550,6 +609,26 @@ class CadenceStore extends ChangeNotifier {
   void setViewMode(String m) {
     viewMode = m;
     _changed();
+  }
+
+  void setSortMode(String m) {
+    sortMode = m;
+    _changed();
+  }
+
+  /// Order a group's rows by the current sort mode. 'due' puts dated tasks
+  /// first (soonest first), undated last; 'manual' keeps insertion order.
+  List<Task> sortRows(List<Task> rows) {
+    if (sortMode != 'due') return rows;
+    rows.sort((a, b) {
+      final da = parseISO(a.dueISO);
+      final db = parseISO(b.dueISO);
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+      return da.compareTo(db);
+    });
+    return rows;
   }
 
   void setFilter(String f) {

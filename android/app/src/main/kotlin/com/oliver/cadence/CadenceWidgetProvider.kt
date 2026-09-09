@@ -68,6 +68,11 @@ class CadenceWidgetProvider : AppWidgetProvider() {
         else R.layout.cadence_widget
         val views = RemoteViews(context.packageName, layoutRes)
 
+        // Header shows a "due today" count when there is one.
+        val due = HomeWidgetPlugin.getData(context).getString("cadence_due", "0") ?: "0"
+        val title = if (due != "0") "節奏 · $due due today" else "節奏 Cadence"
+        views.setTextViewText(R.id.header_title, title)
+
         // Bind the list; a unique data URI makes the adapter refresh per widget.
         val adapterIntent = Intent(context, WallWidgetService::class.java).apply {
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
