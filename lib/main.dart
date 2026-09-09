@@ -270,15 +270,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(children: [
-              // NB: a plain stretch-Row (no IntrinsicHeight) equalises the two
-              // card heights. IntrinsicHeight can't be used here — the masthead
-              // has a Wrap and TodayCard a LayoutBuilder, neither of which can
-              // answer intrinsic-dimension queries (it blanks the whole page).
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(child: _masthead()),
-                const SizedBox(width: 14),
-                const SizedBox(width: 470, child: TodayCard()),
-              ]),
+              // Fixed-height row so the masthead and TODAY card are always the
+              // same height. A bounded height lets CrossAxisAlignment.stretch
+              // fill both without IntrinsicHeight (which can't measure the
+              // masthead's Wrap or TodayCard's LayoutBuilder and blanks the page).
+              SizedBox(
+                height: 176,
+                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Expanded(child: _masthead()),
+                  const SizedBox(width: 14),
+                  const SizedBox(width: 470, child: TodayCard()),
+                ]),
+              ),
               const SizedBox(height: 16),
               Expanded(child: _board()),
             ]),
@@ -1039,7 +1042,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     _syncButton(),
                   ],
                 ),
-                const SizedBox(height: 11),
+                const SizedBox(height: 16),
                 // scale-down so the title never overflows on narrow/fold screens
                 Align(
                   alignment: Alignment.centerLeft,
@@ -1051,10 +1054,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       textBaseline: TextBaseline.alphabetic,
                       children: [
                         Text('節奏',
-                            style: serifHk(size: 54, color: C.red).copyWith(height: 1)),
-                        const SizedBox(width: 14),
+                            style: serifHk(size: 66, color: C.red).copyWith(height: 1)),
+                        const SizedBox(width: 16),
                         Text('CADENCE',
-                            style: disp(size: 35, w: FontWeight.w700, color: C.greenD)),
+                            style: disp(size: 44, w: FontWeight.w700, color: C.greenD)),
                       ],
                     ),
                   ),
