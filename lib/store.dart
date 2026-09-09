@@ -56,6 +56,30 @@ class CadenceStore extends ChangeNotifier {
     } catch (_) {
       _seed();
     }
+    purgeOldDone();
+  }
+
+  /// How long a completed task lingers before it's auto-removed.
+  static const doneKeep = Duration(days: 7);
+
+  /// Delete tasks finished more than [doneKeep] ago. Tasks completed before
+  /// this feature existed have no timestamp — stamp them "now" so they get a
+  /// full grace period instead of vanishing immediately.
+  void purgeOldDone() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    var migrated = false;
+    for (final t in tasks.where((t) => t.done && t.doneAt == null)) {
+      t.doneAt = now;
+      migrated = true;
+    }
+    final cutoff = now - doneKeep.inMilliseconds;
+    final before = tasks.length;
+    tasks.removeWhere((t) => t.done && t.doneAt != null && t.doneAt! < cutoff);
+    if (tasks.length != before) {
+      _changed(); // an actual removal is a real change — sync it across devices
+    } else if (migrated) {
+      save(); // only stamped timestamps; persist quietly, don't bump the clock
+    }
   }
 
   /// The full app state as a JSON-serialisable map (used for local persistence
@@ -303,6 +327,7 @@ class CadenceStore extends ChangeNotifier {
   void toggleDone(Task t) {
     t.done = !t.done;
     if (t.done) {
+      t.doneAt = DateTime.now().millisecondsSinceEpoch; // for the 1-week auto-clean
       // finishing discards the tile and leaves the mahjong wall, but the task
       // stays a "focus" item (star) so it still shows on the widget's Focus
       // page, struck through, instead of vanishing.
@@ -322,6 +347,7 @@ class CadenceStore extends ChangeNotifier {
         if (!wall.contains(t.id)) wall.add(t.id);
       }
     }
+    if (!t.done) t.doneAt = null; // reopened — restart its clock if finished again
     _changed();
   }
 
