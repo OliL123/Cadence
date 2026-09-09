@@ -46,20 +46,31 @@ class Reminders {
         ),
       );
       for (final t in store.tasks) {
-        if (t.done || t.daily || t.dueTime == null) continue;
+        if (t.done || t.daily) continue;
         final d = CadenceStore.parseISO(t.dueISO);
         if (d == null) continue;
-        final hm = t.dueTime!.split(':');
-        if (hm.length != 2) continue;
-        final when = DateTime(
-            d.year, d.month, d.day, int.tryParse(hm[0]) ?? 0, int.tryParse(hm[1]) ?? 0);
+
+        DateTime when;
+        String body;
+        final hm = t.dueTime?.split(':');
+        if (hm != null && hm.length == 2) {
+          // Timed: remind one hour before it's due.
+          final due = DateTime(
+              d.year, d.month, d.day, int.tryParse(hm[0]) ?? 0, int.tryParse(hm[1]) ?? 0);
+          when = due.subtract(const Duration(hours: 1));
+          body = '一小時後到期 · due in an hour';
+        } else {
+          // Date only: remind at 7am on the day it's due.
+          when = DateTime(d.year, d.month, d.day, 7, 0);
+          body = '今日到期 · due today';
+        }
         if (!when.isAfter(now)) continue;
-        // Schedule at the exact UTC instant of the local due time — avoids
-        // needing a device-timezone plugin while still firing at the right time.
+        // Schedule at the exact UTC instant of the local time — avoids needing a
+        // device-timezone plugin while still firing at the right wall-clock time.
         await _plugin.zonedSchedule(
           t.id,
           t.title,
-          '到期 · due now',
+          body,
           tz.TZDateTime.from(when.toUtc(), tz.UTC),
           details,
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
