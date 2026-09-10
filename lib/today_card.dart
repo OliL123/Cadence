@@ -114,7 +114,7 @@ class _TodayCardState extends State<TodayCard> {
         LayoutBuilder(builder: (context, c) {
           if (c.maxWidth < 440) {
             return Column(children: [
-              _dateCol(now),
+              _dateCol(now, center: true),
               _hdiv(),
               _infoCol(context),
               _hdiv(),
@@ -138,14 +138,18 @@ class _TodayCardState extends State<TodayCard> {
   Widget _vdiv() => Container(width: 2, color: C.red);
   Widget _hdiv() => Container(height: 2, color: C.red);
 
-  Widget _dateCol(DateTime now) => Padding(
+  Widget _dateCol(DateTime now, {bool center = false}) => Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        child: Column(
+            crossAxisAlignment:
+                center ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+            children: [
           Text('${now.year}年${now.month}月${now.day}日', style: _serif(18, C.red)),
           const SizedBox(height: 3),
           Text('${_ganzhi(now.year)} · ${_zodiac(now.year)}', style: _sans(11.5, C.ink2)),
           const SizedBox(height: 10),
           RichText(
+            textAlign: center ? TextAlign.center : TextAlign.start,
             text: TextSpan(children: [
               TextSpan(text: '宜 開工', style: _sans(12, C.greenD)),
               TextSpan(text: '  ·  ', style: _sans(12, C.ink3)),
@@ -413,22 +417,43 @@ class _TodayCardState extends State<TodayCard> {
       backgroundColor: C.paper2,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Icon(icon, size: 22, color: color),
-            const SizedBox(width: 10),
-            Text(zh, style: _serif(20, color)),
-            const SizedBox(width: 8),
-            Text(en, style: _mono(11, C.ink3).copyWith(letterSpacing: 1)),
+      isScrollControlled: true,
+      builder: (ctx) => SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(20, 14, 20, 26 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(icon, size: 22, color: color),
+              const SizedBox(width: 10),
+              Text(zh, style: _serif(20, color)),
+              const SizedBox(width: 8),
+              Text(en, style: _mono(11, C.ink3).copyWith(letterSpacing: 1)),
+              const Spacer(),
+              _sheetClose(ctx),
+            ]),
+            const SizedBox(height: 14),
+            ...body,
           ]),
-          const SizedBox(height: 14),
-          ...body,
-        ]),
+        ),
       ),
     );
   }
+
+  /// A close button so any detail sheet can be dismissed even on a tiny/fold
+  /// screen where there's no scrim left to tap.
+  Widget _sheetClose(BuildContext ctx) => InkWell(
+        onTap: () => Navigator.of(ctx).maybePop(),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: C.paper,
+            border: Border.all(color: C.line),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.close, size: 16, color: C.ink2),
+        ),
+      );
 
 
   void _showWeather(BuildContext context) {
@@ -728,9 +753,12 @@ class _TodayCardState extends State<TodayCard> {
                     const Spacer(),
                     TextButton(
                       onPressed: () => g.disconnect(),
-                      style: TextButton.styleFrom(foregroundColor: C.red),
+                      style: TextButton.styleFrom(
+                          foregroundColor: C.red, padding: const EdgeInsets.symmetric(horizontal: 8)),
                       child: Text('Disconnect', style: _sans(12, C.red)),
                     ),
+                    const SizedBox(width: 4),
+                    _sheetClose(context),
                   ]),
                   const SizedBox(height: 6),
                   // ---- sub-calendar picker ----
