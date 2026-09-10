@@ -5,6 +5,7 @@ import 'palette.dart';
 import 'services.dart';
 import 'store.dart';
 import 'calendar/gcal.dart';
+import 'hoverable.dart';
 
 TextStyle _serif(double s, Color c) =>
     GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: s, color: c);
@@ -606,8 +607,10 @@ class _TodayCardState extends State<TodayCard> {
 
   Widget _regionChip(String code, String label, bool on, VoidCallback onTap) {
     final col = placeColor(code);
-    return GestureDetector(
+    return Hoverable(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      hoverColor: on ? const Color(0x26FFFFFF) : const Color(0x1F000000),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
         decoration: BoxDecoration(
@@ -789,8 +792,10 @@ class _TodayCardState extends State<TodayCard> {
     );
   }
 
-  Widget _calChip(GCalCalendar c, bool on, VoidCallback onTap) => GestureDetector(
+  Widget _calChip(GCalCalendar c, bool on, VoidCallback onTap) => Hoverable(
         onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        hoverColor: on ? const Color(0x26FFFFFF) : const Color(0x1F000000),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
           decoration: BoxDecoration(
