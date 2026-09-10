@@ -345,6 +345,19 @@ class CadenceStore extends ChangeNotifier {
     _changed();
   }
 
+  /// Re-insert a task (undo a delete). _reconcile re-attaches its wall tile if
+  /// it was starred.
+  void insertTask(Task t, int index) {
+    tasks.insert(index.clamp(0, tasks.length), t);
+    _changed();
+  }
+
+  /// Delete every finished task now (the Done header's "clear" action).
+  void clearDone() {
+    tasks.removeWhere((t) => t.done && !t.daily);
+    _changed();
+  }
+
   void toggleDone(Task t) {
     t.done = !t.done;
     if (t.done) {
@@ -701,6 +714,14 @@ class CadenceStore extends ChangeNotifier {
     final now = DateTime.now();
     final t0 = DateTime(now.year, now.month, now.day);
     return d.difference(t0).inDays <= 2;
+  }
+
+  bool isOverdue(Task t) {
+    if (t.done || t.daily) return false;
+    final d = parseISO(t.dueISO);
+    if (d == null) return false;
+    final now = DateTime.now();
+    return d.difference(DateTime(now.year, now.month, now.day)).inDays < 0;
   }
 }
 

@@ -155,6 +155,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
+  void _snack(String msg, VoidCallback onUndo) {
+    final m = ScaffoldMessenger.of(context);
+    m.clearSnackBars();
+    m.showSnackBar(SnackBar(
+      content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
+      backgroundColor: C.greenD,
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 4),
+      action: SnackBarAction(label: 'UNDO', textColor: C.mustard, onPressed: onUndo),
+    ));
+  }
+
+  void _completeWithUndo(Task t) {
+    final wasDone = t.done;
+    store.toggleDone(t);
+    if (!wasDone && t.done) _snack('✓ Completed', () => store.toggleDone(t));
+  }
+
+  void _deleteWithUndo(Task t) {
+    final idx = store.tasks.indexOf(t);
+    store.deleteTask(t);
+    _snack('Task deleted', () => store.insertTask(t, idx < 0 ? 0 : idx));
+  }
+
+  void _pushToTomorrow(Task t) {
+    final now = DateTime.now();
+    store.setDue(t, DateTime(now.year, now.month, now.day + 1));
+  }
+
+  String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inSeconds < 10) return 'just now';
+    if (d.inMinutes < 1) return '${d.inSeconds}s ago';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    return '${d.inDays}d ago';
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // A home-screen widget tap may have changed the data on disk while we were
@@ -854,6 +892,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   const SizedBox(width: 8),
                   Expanded(child: Text(s.email ?? '', style: const TextStyle(fontWeight: FontWeight.w700, color: C.ink))),
                 ]),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, bottom: 10, left: 26),
+                  child: Text(
+                      s.lastSyncedAt == null
+                          ? 'Waiting for first sync…'
+                          : 'Last synced ${_ago(s.lastSyncedAt!)}',
+                      style: mono(size: 11, color: C.ink3)),
+                ),
                 if (s.message != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
@@ -1208,7 +1254,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     ];
   }
 
-  Widget _sectionHeader(String name, String zh, Color color, String count) => Container(
+  Widget _sectionHeader(String name, String zh, Color color, String count,
+          {Widget? trailing}) =>
+      Container(
         margin: const EdgeInsets.only(bottom: 11),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
@@ -1226,13 +1274,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ],
           const Spacer(),
           Text(count, style: mono(size: 11, color: C.creamTxt)),
+          if (trailing != null) ...[const SizedBox(width: 10), trailing],
         ]),
       );
 
   List<Widget> _doneSection() {
     final rows = store.tasks.where((t) => t.done && !t.daily).toList();
     return [
-      _sectionHeader('Done', '完成', C.ink3, '${rows.length}'),
+      _sectionHeader('Done', '完成', C.ink3, '${rows.length}',
+          trailing: rows.isEmpty
+              ? null
+              : GestureDetector(
+                  onTap: _clearDoneWithUndo,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                        color: const Color(0x33FFFFFF),
+                        borderRadius: BorderRadius.circular(5)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.delete_sweep_outlined, size: 14, color: C.creamTxt),
+                      const SizedBox(width: 4),
+                      Text('Clear', style: mono(size: 10, color: C.creamTxt)),
+                    ]),
+                  ),
+                )),
       Padding(
         padding: const EdgeInsets.only(left: 4, bottom: 8),
         child: Text('clears automatically a week after completion',
@@ -1241,6 +1306,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       for (final t in rows) _taskCard(t),
       const SizedBox(height: 20),
     ];
+  }
+
+  void _clearDoneWithUndo() {
+    final removed = store.tasks.where((t) => t.done && !t.daily).toList();
+    if (removed.isEmpty) return;
+    store.clearDone();
+    _snack('Cleared ${removed.length} finished', () {
+      for (final t in removed) {
+        store.insertTask(t, store.tasks.length);
+      }
+    });
   }
 
   // ---------------- daily rituals ----------------
@@ -1392,6 +1468,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final g = store.groupOf(t.group);
     final due = store.dueLabel(t);
     final soon = store.soon(t);
+    final overdue = store.isOverdue(t);
     final lit = _highlightId == t.id;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1404,7 +1481,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               : const [],
         ),
         child: _enamel(
-          edge: g.c,
+          edge: overdue ? C.red : g.c,
           padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1467,7 +1544,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   onTap: () => _editDue(t),
                   child: due == null
                       ? _iconChip(Icons.event_outlined)
-                      : Text('◷ $due', style: mono(size: 11, color: soon ? C.red : C.ink3)),
+                      : overdue
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                              decoration: BoxDecoration(
+                                  color: C.red, borderRadius: BorderRadius.circular(5)),
+                              child: Text('◷ $due',
+                                  style: mono(size: 10.5, color: C.creamTxt)
+                                      .copyWith(fontWeight: FontWeight.w700)),
+                            )
+                          : Text('◷ $due',
+                              style: mono(size: 11, color: soon ? C.red : C.ink3)),
                 ),
                 if (t.pri) _priBadge(),
                 if (t.sub.isNotEmpty)
@@ -1486,7 +1573,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _checkbox(Task t, Color color) => GestureDetector(
-        onTap: () => store.toggleDone(t),
+        onTap: () => _completeWithUndo(t),
         child: Container(
           width: 20,
           height: 20,
@@ -1517,6 +1604,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             case 'sub':
               store.toggleOpen(t);
               break;
+            case 'tomorrow':
+              _pushToTomorrow(t);
+              break;
             case 'move':
               _moveTask(t);
               break;
@@ -1524,7 +1614,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               store.setDaily(t, true);
               break;
             case 'del':
-              store.deleteTask(t);
+              _deleteWithUndo(t);
               break;
           }
         },
@@ -1534,6 +1624,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               value: 'time',
               child: _MenuRow(Icons.schedule,
                   t.dueTime == null ? 'Set time' : 'Change time')),
+          const PopupMenuItem(
+              value: 'tomorrow', child: _MenuRow(Icons.wb_sunny_outlined, 'Due tomorrow')),
           PopupMenuItem(
               value: 'pri',
               child: _MenuRow(Icons.priority_high,
