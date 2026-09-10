@@ -162,7 +162,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
       backgroundColor: C.greenD,
       behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 4),
+      duration: const Duration(seconds: 5),
+      showCloseIcon: true,
+      closeIconColor: C.creamTxt,
       action: SnackBarAction(label: 'UNDO', textColor: C.mustard, onPressed: onUndo),
     ));
   }
@@ -1284,18 +1286,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _sectionHeader('Done', '完成', C.ink3, '${rows.length}',
           trailing: rows.isEmpty
               ? null
-              : GestureDetector(
-                  onTap: _clearDoneWithUndo,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                        color: const Color(0x33FFFFFF),
-                        borderRadius: BorderRadius.circular(5)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.delete_sweep_outlined, size: 14, color: C.creamTxt),
-                      const SizedBox(width: 4),
-                      Text('Clear', style: mono(size: 10, color: C.creamTxt)),
-                    ]),
+              : Material(
+                  color: const Color(0x22FFFFFF),
+                  borderRadius: BorderRadius.circular(5),
+                  child: InkWell(
+                    onTap: _clearDoneWithUndo,
+                    borderRadius: BorderRadius.circular(5),
+                    hoverColor: const Color(0x55FFFFFF),
+                    splashColor: const Color(0x44FFFFFF),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.delete_sweep_outlined, size: 14, color: C.creamTxt),
+                        const SizedBox(width: 4),
+                        Text('Clear', style: mono(size: 10, color: C.creamTxt)),
+                      ]),
+                    ),
                   ),
                 )),
       Padding(
