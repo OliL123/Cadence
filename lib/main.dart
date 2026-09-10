@@ -945,6 +945,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         initialDate: date ?? now,
                         firstDate: DateTime(now.year - 1),
                         lastDate: DateTime(now.year + 3),
+                        builder: _themedPicker,
                       );
                       if (d != null) setLocal(() => date = d);
                     },
@@ -963,7 +964,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ? null
                         : () async {
                             final tt = await showTimePicker(
-                                context: ctx, initialTime: time ?? TimeOfDay.now());
+                                context: ctx,
+                                initialTime: time ?? TimeOfDay.now(),
+                                builder: _themedPicker);
                             if (tt != null) setLocal(() => time = tt);
                           },
                     icon: const Icon(Icons.schedule, size: 16),
@@ -1401,6 +1404,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             case 'date':
               _pickDue(t);
               break;
+            case 'time':
+              _pickTime(t);
+              break;
             case 'pri':
               store.togglePri(t);
               break;
@@ -1420,6 +1426,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         },
         itemBuilder: (_) => [
           const PopupMenuItem(value: 'date', child: _MenuRow(Icons.event_outlined, 'Set due date')),
+          PopupMenuItem(
+              value: 'time',
+              child: _MenuRow(Icons.schedule,
+                  t.dueTime == null ? 'Set time' : 'Change time')),
           PopupMenuItem(
               value: 'pri',
               child: _MenuRow(Icons.priority_high,
@@ -1650,8 +1660,71 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       initialDate: _addDate ?? now,
       firstDate: DateTime(now.year - 1),
       lastDate: DateTime(now.year + 3),
+      builder: _themedPicker,
     );
     if (picked != null) setState(() => _addDate = picked);
+  }
+
+  /// Wraps a date/time picker in the cha-chaan-teng palette.
+  Widget _themedPicker(BuildContext ctx, Widget? child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: const ColorScheme.light(
+            primary: C.red,
+            onPrimary: C.creamTxt,
+            surface: C.paper2,
+            onSurface: C.ink,
+            secondary: C.green,
+            onSecondary: C.creamTxt,
+            surfaceTint: Colors.transparent,
+          ),
+          datePickerTheme: DatePickerThemeData(
+            backgroundColor: C.paper2,
+            headerBackgroundColor: C.red,
+            headerForegroundColor: C.creamTxt,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            todayForegroundColor: WidgetStateProperty.all(C.red),
+            todayBorder: const BorderSide(color: C.red),
+          ),
+          timePickerTheme: TimePickerThemeData(
+            backgroundColor: C.paper2,
+            dialBackgroundColor: C.paper,
+            hourMinuteColor: C.paper,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(foregroundColor: C.red),
+          ),
+        ),
+        child: child!,
+      );
+
+  /// "14:30" -> TimeOfDay, or null.
+  TimeOfDay? _parseTime(String? hhmm) {
+    if (hhmm == null) return null;
+    final p = hhmm.split(':');
+    if (p.length != 2) return null;
+    final h = int.tryParse(p[0]);
+    final m = int.tryParse(p[1]);
+    if (h == null || m == null) return null;
+    return TimeOfDay(hour: h, minute: m);
+  }
+
+  /// Set/clear a task's due time (a due date is set first if needed).
+  Future<void> _pickTime(Task t) async {
+    if (t.dueISO == null) {
+      await _pickDue(t);
+      if (t.dueISO == null) return; // cancelled — no date to anchor the time
+    }
+    final tod = await showTimePicker(
+      context: context,
+      initialTime: _parseTime(t.dueTime) ?? const TimeOfDay(hour: 9, minute: 0),
+      builder: _themedPicker,
+    );
+    if (tod != null) {
+      store.setDueTime(t,
+          '${tod.hour.toString().padLeft(2, '0')}:${tod.minute.toString().padLeft(2, '0')}');
+    }
   }
 
   void _submitAdd() {
@@ -1675,6 +1748,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       initialDate: CadenceStore.parseISO(t.dueISO) ?? now,
       firstDate: DateTime(now.year - 1),
       lastDate: DateTime(now.year + 3),
+      builder: _themedPicker,
     );
     if (d != null) store.setDue(t, d);
   }
