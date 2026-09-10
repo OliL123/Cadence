@@ -118,10 +118,14 @@ class SyncService extends ChangeNotifier {
       final data = Map<String, dynamic>.from(row['data'] as Map);
       final remoteTs = (data['updatedAt'] ?? 0) as int;
       if (remoteTs > store.updatedAt) {
-        // Cloud is newer — take it.
+        // Cloud is newer — take it (per-task merge may keep some local edits).
         store.applyRemoteState(data);
         _lastSyncedJson = jsonEncode(store.exportState());
         lastSyncedAt = DateTime.now();
+        if (store.pendingMergePush) {
+          store.pendingMergePush = false;
+          await _push(force: true); // push the corrected merge back up
+        }
       } else {
         // Our local copy is newer (or equal) — push it up so the cloud matches.
         await _push(force: true);
@@ -157,6 +161,10 @@ class SyncService extends ChangeNotifier {
             store.applyRemoteState(data);
             _lastSyncedJson = jsonEncode(store.exportState());
             lastSyncedAt = DateTime.now();
+            if (store.pendingMergePush) {
+              store.pendingMergePush = false;
+              _push(force: true); // push the corrected merge back up
+            }
             notifyListeners();
           },
         )
@@ -214,7 +222,7 @@ class SyncService extends ChangeNotifier {
           await _sb.from(_table).select('data').eq('user_id', uid).maybeSingle();
       if (row != null && row['data'] != null) {
         final data = Map<String, dynamic>.from(row['data'] as Map);
-        store.applyRemoteState(data);
+        store.applyRemoteState(data, merge: false); // manual override: cloud wins outright
         _lastSyncedJson = jsonEncode(store.exportState());
         message = 'Loaded the cloud copy';
       } else {

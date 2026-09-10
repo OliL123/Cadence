@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
+import 'palette.dart';
 
 import 'store.dart';
 
@@ -58,11 +59,11 @@ class Reminders {
           final due = DateTime(
               d.year, d.month, d.day, int.tryParse(hm[0]) ?? 0, int.tryParse(hm[1]) ?? 0);
           when = due.subtract(const Duration(hours: 1));
-          body = '一小時後到期 · due in an hour';
+          body = C.chronicle ? 'due in an hour' : '一小時後到期 · due in an hour';
         } else {
           // Date only: remind at 7am on the day it's due.
           when = DateTime(d.year, d.month, d.day, 7, 0);
-          body = '今日到期 · due today';
+          body = C.chronicle ? 'due today' : '今日到期 · due today';
         }
         if (!when.isAfter(now)) continue;
         // Schedule at the exact UTC instant of the local time — avoids needing a

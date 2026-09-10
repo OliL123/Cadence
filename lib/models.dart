@@ -37,6 +37,7 @@ class Task {
   bool daily; // a recurring daily ritual (lives in the Daily section)
   String? doneDate; // yyyy-mm-dd a daily was last ticked
   int streak; // consecutive-day streak for a daily
+  int uAt; // ms-since-epoch this task was last edited (per-task sync LWW)
 
   Task({
     required this.id,
@@ -54,6 +55,7 @@ class Task {
     this.daily = false,
     this.doneDate,
     this.streak = 0,
+    this.uAt = 0,
   }) : sub = sub ?? [];
 
   Map<String, dynamic> toJson() => {
@@ -72,6 +74,7 @@ class Task {
         'daily': daily,
         'doneDate': doneDate,
         'streak': streak,
+        'u': uAt,
       };
 
   factory Task.fromJson(Map<String, dynamic> j) => Task(
@@ -92,6 +95,7 @@ class Task {
         daily: j['daily'] ?? false,
         doneDate: j['doneDate'],
         streak: j['streak'] ?? 0,
+        uAt: j['u'] ?? 0,
       );
 }
 
@@ -111,10 +115,18 @@ class Group {
       );
 }
 
-List<Group> defaultGroups() => [
-      Group(key: 'uni', name: 'Uni', zh: '學業', color: C.navy.toARGB32()),
-      Group(key: 'side', name: 'Side project', zh: '副業', color: C.red.toARGB32()),
-      Group(key: 'home', name: 'Home', zh: '家務', color: C.mustard.toARGB32()),
-      Group(key: 'health', name: 'Health', zh: '健康', color: C.green.toARGB32()),
-      Group(key: 'errand', name: 'Errands', zh: '雜務', color: C.teal.toARGB32()),
-    ];
+List<Group> defaultGroups() => C.chronicle
+    ? [
+        Group(key: 'uni', name: 'Studies', zh: 'studia', color: C.navy.toARGB32()),
+        Group(key: 'side', name: 'Work', zh: 'opera', color: C.red.toARGB32()),
+        Group(key: 'home', name: 'Home', zh: 'domus', color: C.mustard.toARGB32()),
+        Group(key: 'health', name: 'Health', zh: 'salus', color: C.green.toARGB32()),
+        Group(key: 'errand', name: 'Errands', zh: 'negotia', color: C.teal.toARGB32()),
+      ]
+    : [
+        Group(key: 'uni', name: 'Uni', zh: '學業', color: C.navy.toARGB32()),
+        Group(key: 'side', name: 'Side project', zh: '副業', color: C.red.toARGB32()),
+        Group(key: 'home', name: 'Home', zh: '家務', color: C.mustard.toARGB32()),
+        Group(key: 'health', name: 'Health', zh: '健康', color: C.green.toARGB32()),
+        Group(key: 'errand', name: 'Errands', zh: '雜務', color: C.teal.toARGB32()),
+      ];

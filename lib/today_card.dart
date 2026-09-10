@@ -7,12 +7,15 @@ import 'store.dart';
 import 'calendar/gcal.dart';
 import 'hoverable.dart';
 
-TextStyle _serif(double s, Color c) =>
-    GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: s, color: c);
-TextStyle _sans(double s, Color c, [FontWeight w = FontWeight.w700]) =>
-    GoogleFonts.notoSansHk(fontSize: s, color: c, fontWeight: w);
-TextStyle _mono(double s, Color c) =>
-    GoogleFonts.spaceMono(fontSize: s, color: c, fontWeight: FontWeight.w700);
+TextStyle _serif(double s, Color c) => C.chronicle
+    ? GoogleFonts.playfairDisplay(fontWeight: FontWeight.w700, fontSize: s, color: c)
+    : GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: s, color: c);
+TextStyle _sans(double s, Color c, [FontWeight w = FontWeight.w700]) => C.chronicle
+    ? GoogleFonts.ebGaramond(fontSize: s, color: c, fontWeight: w)
+    : GoogleFonts.notoSansHk(fontSize: s, color: c, fontWeight: w);
+TextStyle _mono(double s, Color c) => C.chronicle
+    ? GoogleFonts.ebGaramond(fontSize: s, color: c, fontWeight: FontWeight.w700)
+    : GoogleFonts.spaceMono(fontSize: s, color: c, fontWeight: FontWeight.w700);
 
 class TodayCard extends StatefulWidget {
   const TodayCard({super.key});
@@ -82,10 +85,28 @@ class _TodayCardState extends State<TodayCard> {
     return '${zod[j]}年';
   }
 
+  // Chronicle date helpers.
+  static const _months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  String _monthEn(int m) => _months[(m - 1).clamp(0, 11)];
+  String _roman(int n) {
+    const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+    const syms = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
+    final b = StringBuffer();
+    var x = n;
+    for (var i = 0; i < vals.length; i++) {
+      while (x >= vals[i]) { b.write(syms[i]); x -= vals[i]; }
+    }
+    return b.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final wd = ['日', '一', '二', '三', '四', '五', '六'][now.weekday % 7];
+    const wdEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     String p(int n) => n.toString().padLeft(2, '0');
     final clock = '${p(now.hour)}:${p(now.minute)}:${p(now.second)}';
 
@@ -101,10 +122,10 @@ class _TodayCardState extends State<TodayCard> {
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
               decoration:
                   BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(5)),
-              child: Text('今日 TODAY', style: _serif(12, C.creamTxt)),
+              child: Text(C.chronicle ? 'TODAY' : '今日 TODAY', style: _serif(12, C.creamTxt)),
             ),
             const Spacer(),
-            Text('星期$wd', style: _serif(14, C.red)),
+            Text(C.chronicle ? wdEn[now.weekday % 7] : '星期$wd', style: _serif(14, C.red)),
             const SizedBox(width: 9),
             Text(clock,
                 style: _mono(13, C.red)
@@ -145,16 +166,25 @@ class _TodayCardState extends State<TodayCard> {
             crossAxisAlignment:
                 center ? CrossAxisAlignment.center : CrossAxisAlignment.start,
             children: [
-          Text('${now.year}年${now.month}月${now.day}日', style: _serif(18, C.red)),
+          Text(
+              C.chronicle
+                  ? '${now.day} ${_monthEn(now.month)} ${now.year}'
+                  : '${now.year}年${now.month}月${now.day}日',
+              style: _serif(C.chronicle ? 16 : 18, C.red)),
           const SizedBox(height: 3),
-          Text('${_ganzhi(now.year)} · ${_zodiac(now.year)}', style: _sans(11.5, C.ink2)),
+          Text(
+              C.chronicle
+                  ? 'Anno ${_roman(now.year)}'
+                  : '${_ganzhi(now.year)} · ${_zodiac(now.year)}',
+              style: _sans(11.5, C.ink2).copyWith(
+                  fontStyle: C.chronicle ? FontStyle.italic : FontStyle.normal)),
           const SizedBox(height: 10),
           RichText(
             textAlign: center ? TextAlign.center : TextAlign.start,
             text: TextSpan(children: [
-              TextSpan(text: '宜 開工', style: _sans(12, C.greenD)),
+              TextSpan(text: C.chronicle ? 'Favoured — to begin' : '宜 開工', style: _sans(12, C.greenD)),
               TextSpan(text: '  ·  ', style: _sans(12, C.ink3)),
-              TextSpan(text: '忌 拖延', style: _sans(12, C.red)),
+              TextSpan(text: C.chronicle ? 'Ill-starred — to delay' : '忌 拖延', style: _sans(12, C.red)),
             ]),
           ),
         ]),
@@ -181,13 +211,14 @@ class _TodayCardState extends State<TodayCard> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _mini(wxIcon, C.mustard, '天氣 ${store.weatherPlace.toUpperCase()}', wxVal,
+            _mini(wxIcon, C.mustard,
+                '${C.chronicle ? 'SKIES' : '天氣'} ${store.weatherPlace.toUpperCase()}', wxVal,
                 () => _showWeather(context)),
             const SizedBox(height: 6),
             _holidayRow(
                 context,
                 h == null ? C.red : placeColor(h.country),
-                '假期 ${store.holidayCountries.join(' · ')}',
+                '${C.chronicle ? 'FEASTS' : '假期'} ${store.holidayCountries.join(' · ')}',
                 holName,
                 holDays),
           ]),
@@ -270,7 +301,7 @@ class _TodayCardState extends State<TodayCard> {
             padding: const EdgeInsets.fromLTRB(11, 8, 11, 9),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Text('行事曆 CALENDAR', style: _mono(8, C.ink3).copyWith(letterSpacing: .6)),
+                Text(C.chronicle ? 'CALENDAR' : '行事曆 CALENDAR', style: _mono(8, C.ink3).copyWith(letterSpacing: .6)),
                 const Spacer(),
                 if (g.isConnected)
                   InkWell(
@@ -287,7 +318,7 @@ class _TodayCardState extends State<TodayCard> {
                     decoration: BoxDecoration(
                         border: Border.all(color: C.mustard),
                         borderRadius: BorderRadius.circular(4)),
-                    child: Text('示範', style: _mono(7.5, C.mustard)),
+                    child: Text(C.chronicle ? 'DEMO' : '示範', style: _mono(7.5, C.mustard)),
                   ),
               ]),
               const SizedBox(height: 5),
@@ -459,7 +490,7 @@ class _TodayCardState extends State<TodayCard> {
 
   void _showWeather(BuildContext context) {
     const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    _sheet(context, '天氣', store.weatherPlace.toUpperCase(), C.mustard,
+    _sheet(context, C.chronicle ? 'Skies' : '天氣', store.weatherPlace.toUpperCase(), C.mustard,
         _wx == null ? Icons.wb_sunny_outlined : weatherInfo(_wx!.code).$2, [
       if (_wxLoading)
         Text('Loading…', style: _sans(13, C.ink2))
@@ -477,7 +508,7 @@ class _TodayCardState extends State<TodayCard> {
         ]),
         if (_wx!.hours.isNotEmpty) ...[
           const SizedBox(height: 18),
-          Text('稍後 · LATER TODAY', style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
+          Text(C.chronicle ? 'LATER TODAY' : '稍後 · LATER TODAY', style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
           const SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -491,7 +522,7 @@ class _TodayCardState extends State<TodayCard> {
           ),
         ],
         const SizedBox(height: 18),
-        Text('未來五日 · 5-DAY', style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
+        Text(C.chronicle ? '5-DAY' : '未來五日 · 5-DAY', style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
         const SizedBox(height: 8),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           for (final d in _wx!.days.take(5))
@@ -647,7 +678,7 @@ class _TodayCardState extends State<TodayCard> {
             Row(children: [
               const Icon(Icons.celebration_outlined, size: 22, color: C.red),
               const SizedBox(width: 10),
-              Text('假期', style: _serif(20, C.red)),
+              Text(C.chronicle ? 'Feasts' : '假期', style: _serif(20, C.red)),
               const SizedBox(width: 8),
               Text('HOLIDAYS', style: _mono(11, C.ink3).copyWith(letterSpacing: 1)),
             ]),
@@ -750,7 +781,7 @@ class _TodayCardState extends State<TodayCard> {
                   Row(children: [
                     const Icon(Icons.event_outlined, size: 22, color: C.navy),
                     const SizedBox(width: 10),
-                    Text('行事曆', style: _serif(20, C.navy)),
+                    Text(C.chronicle ? 'Calendar' : '行事曆', style: _serif(20, C.navy)),
                     const SizedBox(width: 8),
                     Text('CALENDAR', style: _mono(11, C.ink3).copyWith(letterSpacing: 1)),
                     const Spacer(),

@@ -4,12 +4,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'palette.dart';
+import 'labels.dart';
 import 'models.dart';
 import 'store.dart';
 import 'hoverable.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'today_card.dart';
 import 'mahjong_page.dart';
+import 'spread_wall.dart';
 import 'home_widget_bridge.dart';
 import 'supabase_config.dart';
 import 'sync.dart';
@@ -39,7 +41,7 @@ class CadenceApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Cadence',
+      title: C.chronicle ? 'Chronicle' : 'Cadence',
       debugShowCheckedModeBanner: false,
       // en-GB so date pickers read/enter as DD/MM/YYYY.
       locale: const Locale('en', 'GB'),
@@ -58,7 +60,9 @@ class CadenceApp extends StatelessWidget {
           surface: C.paper2,
           brightness: Brightness.light,
         ),
-        textTheme: GoogleFonts.hankenGroteskTextTheme(),
+        textTheme: C.chronicle
+            ? GoogleFonts.ebGaramondTextTheme()
+            : GoogleFonts.hankenGroteskTextTheme(),
         popupMenuTheme: PopupMenuThemeData(
           color: C.paper2,
           elevation: 8,
@@ -93,13 +97,20 @@ class _MenuRow extends StatelessWidget {
       ]);
 }
 
-// shared type styles
-TextStyle serifHk({double size = 14, Color color = C.ink}) =>
-    GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: size, color: color);
+// shared type styles — each resolves to the active skin's font at build time.
+//  Cadence: Noto Serif HK (accent) / Oswald (display) / Space Mono (labels).
+//  Chronicle: Playfair Display (accent + display) / EB Garamond (labels).
+TextStyle serifHk({double size = 14, Color color = C.ink}) => C.chronicle
+    ? GoogleFonts.playfairDisplay(fontWeight: FontWeight.w700, fontSize: size, color: color)
+    : GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: size, color: color);
 TextStyle disp({double size = 14, FontWeight w = FontWeight.w600, Color color = C.ink}) =>
-    GoogleFonts.oswald(fontSize: size, fontWeight: w, color: color);
+    C.chronicle
+        ? GoogleFonts.playfairDisplay(fontSize: size, fontWeight: w, color: color)
+        : GoogleFonts.oswald(fontSize: size, fontWeight: w, color: color);
 TextStyle mono({double size = 11, Color color = C.ink3, FontWeight w = FontWeight.w400}) =>
-    GoogleFonts.spaceMono(fontSize: size, color: color, fontWeight: w);
+    C.chronicle
+        ? GoogleFonts.ebGaramond(fontSize: size, color: color, fontWeight: w)
+        : GoogleFonts.spaceMono(fontSize: size, color: color, fontWeight: w);
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -312,7 +323,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           padding: EdgeInsets.zero,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(5),
-            child: const FocusWall(showHeader: true),
+            child: C.chronicle
+                ? const SpreadWall(showHeader: true)
+                : const FocusWall(showHeader: true),
           ),
         ),
       );
@@ -350,9 +363,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: Container(
           decoration: const BoxDecoration(border: Border(top: BorderSide(color: C.line, width: 1.5))),
           child: Row(children: [
-            item('tasks', '待辦', 'TASKS', Icons.check_box_outlined),
+            item('tasks', L.navTasksZh, L.navTasksEn, Icons.check_box_outlined),
             Container(width: 1.5, height: 46, color: C.line),
-            item('focus', '麻雀', 'FOCUS', Icons.grid_view_rounded),
+            item('focus', L.navFocusZh, L.navFocusEn,
+                C.chronicle ? Icons.style_outlined : Icons.grid_view_rounded),
           ]),
         ),
       ),
@@ -364,7 +378,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         height: 40,
         padding: const EdgeInsets.only(left: 12, right: 12, top: 2),
         child: ListView(scrollDirection: Axis.horizontal, children: [
-          _groupChip('all', 'All 全部', C.greenD,
+          _groupChip('all', C.chronicle ? 'All · omnia' : 'All 全部', C.greenD,
               store.tasks.where((t) => !t.done && !t.daily).length),
           for (final g in store.groups)
             _groupChip(g.key, '${g.name} ${g.zh}', g.c,
@@ -438,7 +452,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Container(width: 2, color: C.green),
             Expanded(child: _tasksColumn()),
             Container(width: 2, color: C.green),
-            const SizedBox(width: 300, child: FocusWall(showHeader: true)),
+            SizedBox(
+                width: 300,
+                child: C.chronicle
+                    ? const SpreadWall(showHeader: true)
+                    : const FocusWall(showHeader: true)),
           ]),
         ),
       );
@@ -452,16 +470,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         padding: const EdgeInsets.fromLTRB(13, 14, 13, 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            Text('GROUPS',
+            Text(L.groups,
                 style: disp(size: 12, w: FontWeight.w700, color: C.greenD)
                     .copyWith(letterSpacing: .5)),
             const SizedBox(width: 7),
-            Text('分類', style: serifHk(size: 12, color: C.greenD)),
+            Text(L.groupsZh,
+                style: C.chronicle
+                    ? disp(size: 12, w: FontWeight.w600, color: C.greenD)
+                        .copyWith(fontStyle: FontStyle.italic)
+                    : serifHk(size: 12, color: C.greenD)),
           ]),
           const SizedBox(height: 12),
           Expanded(
             child: ListView(children: [
-              _railItem('all', 'All', '全部', C.greenD,
+              _railItem('all', 'All', C.chronicle ? 'omnia' : '全部', C.greenD,
                   store.tasks.where((t) => !t.done && !t.daily).length),
               for (final g in store.groups)
                 _railItem(g.key, g.name, g.zh, g.c,
@@ -575,11 +597,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           LayoutBuilder(builder: (ctx, c) {
             final title = Row(mainAxisSize: MainAxisSize.min, children: [
-              Text('TASKS',
+              Text(L.tasks,
                   style: disp(size: 22, w: FontWeight.w700, color: C.ink)
                       .copyWith(letterSpacing: .4)),
               const SizedBox(width: 8),
-              Text('待辦', style: serifHk(size: 18, color: C.red)),
+              Text(L.tasksZh,
+                  style: C.chronicle
+                      ? disp(size: 17, w: FontWeight.w600, color: C.red)
+                          .copyWith(fontStyle: FontStyle.italic)
+                      : serifHk(size: 18, color: C.red)),
             ]);
             if (c.maxWidth < 520) {
               // stack: title, then the buttons (wrapping if very narrow)
@@ -610,9 +636,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               TextSpan(text: 'finishes', style: TextStyle(color: C.greenD)),
               const TextSpan(text: '  ·  tap a title to rename  ·  '),
               TextSpan(text: '★', style: TextStyle(color: C.mustard)),
-              const TextSpan(text: ' draws it into the '),
-              TextSpan(text: '麻雀', style: serifHk(size: 12, color: C.green)),
-              const TextSpan(text: ' wall'),
+              TextSpan(text: C.chronicle ? ' draws it into ' : ' draws it into the '),
+              TextSpan(
+                  text: L.focusName,
+                  style: C.chronicle
+                      ? disp(size: 12, w: FontWeight.w600, color: C.red)
+                          .copyWith(fontStyle: FontStyle.italic)
+                      : serifHk(size: 12, color: C.green)),
+              TextSpan(text: C.chronicle ? '' : ' wall'),
             ]),
             style: TextStyle(fontSize: 12, color: C.ink2, height: 1.3),
           ),
@@ -636,9 +667,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Row(children: [
           const Icon(Icons.warning_amber_rounded, size: 16, color: C.red),
           const SizedBox(width: 7),
-          Text('就到期', style: serifHk(size: 13, color: C.red)),
+          Text(L.dueSoonZh,
+              style: C.chronicle
+                  ? disp(size: 13, w: FontWeight.w600, color: C.red)
+                      .copyWith(fontStyle: FontStyle.italic)
+                  : serifHk(size: 13, color: C.red)),
           const SizedBox(width: 5),
-          Text('DUE SOON',
+          Text(L.dueSoon,
               style: mono(size: 8.5, color: C.red).copyWith(letterSpacing: .8)),
         ]),
         const SizedBox(height: 8),
@@ -698,9 +733,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           borderRadius: BorderRadius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        seg('sections', 'Sections 分類'),
+        seg('sections', C.chronicle ? 'Sections' : 'Sections 分類'),
         Container(width: 2, height: 30, color: C.green),
-        seg('board', 'Board 牌桌'),
+        seg('board', C.chronicle ? 'Board' : 'Board 牌桌'),
       ]),
     );
   }
@@ -716,7 +751,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       ),
-      child: Text('完成 Done ($n)',
+      child: Text(C.chronicle ? 'Done ($n)' : '完成 Done ($n)',
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
     );
   }
@@ -804,7 +839,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: OutlinedButton.icon(
           onPressed: _addGroupDialog,
           icon: const Icon(Icons.add, size: 16),
-          label: const Text('New group 新增', style: TextStyle(fontSize: 12.5)),
+          label: Text(C.chronicle ? 'New group' : 'New group 新增', style: const TextStyle(fontSize: 12.5)),
           style: OutlinedButton.styleFrom(
             foregroundColor: C.greenD,
             side: const BorderSide(color: C.green, width: 1.5),
@@ -883,9 +918,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             final signedIn = s.isSignedIn;
             return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Text('雲端同步', style: serifHk(size: 18, color: C.red)),
+                Text(L.syncZh,
+                    style: C.chronicle
+                        ? disp(size: 17, w: FontWeight.w600, color: C.red)
+                            .copyWith(fontStyle: FontStyle.italic)
+                        : serifHk(size: 18, color: C.red)),
                 const SizedBox(width: 8),
-                Text('SYNC', style: disp(size: 15, w: FontWeight.w700, color: C.ink)),
+                Text(L.sync, style: disp(size: 15, w: FontWeight.w700, color: C.ink)),
               ]),
               const SizedBox(height: 4),
               Text(
@@ -1069,7 +1108,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           return AlertDialog(
             backgroundColor: C.paper2,
             title: Row(children: [
-              Text('新增', style: serifHk(size: 17, color: C.red)),
+              Text(L.add, style: serifHk(size: 17, color: C.red)),
               const SizedBox(width: 8),
               Flexible(child: Text(g.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: C.ink2))),
             ]),
@@ -1211,7 +1250,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         border: Border.all(color: C.red, width: 1.5),
                         borderRadius: BorderRadius.circular(5),
                       ),
-                      child: Text('香港製造 · MADE FOR ME',
+                      child: Text(L.madeFor,
                           style: mono(size: 9.5, color: C.red, w: FontWeight.w700)
                               .copyWith(letterSpacing: 1.6)),
                     ),
@@ -1234,11 +1273,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       crossAxisAlignment: CrossAxisAlignment.baseline,
                       textBaseline: TextBaseline.alphabetic,
                       children: [
-                        Text('節奏',
-                            style: serifHk(size: 66, color: C.red).copyWith(height: 1)),
-                        const SizedBox(width: 16),
-                        Text('CADENCE',
-                            style: disp(size: 44, w: FontWeight.w700, color: C.greenD)),
+                        if (L.appZh.isNotEmpty) ...[
+                          Text(L.appZh,
+                              style: serifHk(size: 66, color: C.red).copyWith(height: 1)),
+                          const SizedBox(width: 16),
+                        ] else ...[
+                          const SealMark(size: 58),
+                          const SizedBox(width: 16),
+                        ],
+                        Text(L.appName,
+                            style: disp(size: 44, w: FontWeight.w700, color: C.chronicle ? C.red : C.greenD)),
                       ],
                     ),
                   ),
@@ -1292,7 +1336,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   List<Widget> _doneSection() {
     final rows = store.tasks.where((t) => t.done && !t.daily).toList();
     return [
-      _sectionHeader('Done', '完成', C.ink3, '${rows.length}',
+      _sectionHeader(L.done, L.doneZh, C.ink3, '${rows.length}',
           trailing: rows.isEmpty
               ? null
               : Material(
@@ -1363,9 +1407,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           boxShadow: const [BoxShadow(color: Color(0x24462D0F), offset: Offset(2, 2))],
         ),
         child: Row(children: [
-          Text('每日', style: serifHk(size: 14, color: C.creamTxt).copyWith(height: 1.1)),
+          Text(L.dailyZh,
+              style: serifHk(size: 14, color: C.creamTxt).copyWith(
+                  height: 1.1, fontStyle: C.chronicle ? FontStyle.italic : FontStyle.normal)),
           const SizedBox(width: 8),
-          Text('DAILY',
+          Text(L.daily,
               style: disp(size: 12, w: FontWeight.w700, color: C.creamTxt)
                   .copyWith(letterSpacing: .5)),
           const Spacer(),
@@ -1650,7 +1696,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           PopupMenuItem(
               value: 'pri',
               child: _MenuRow(Icons.priority_high,
-                  t.pri ? 'Clear priority (急)' : 'Mark priority (急)')),
+                  t.pri ? 'Clear priority (${L.pri})' : 'Mark priority (${L.pri})')),
           const PopupMenuItem(value: 'sub', child: _MenuRow(Icons.checklist, 'Add / show subtasks')),
           const PopupMenuItem(value: 'move', child: _MenuRow(Icons.drive_file_move_outline, 'Move to group…')),
           const PopupMenuItem(value: 'daily', child: _MenuRow(Icons.repeat, 'Make it a daily')),
@@ -1737,7 +1783,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _priBadge() => Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(5)),
-        child: Text('急', style: serifHk(size: 11, color: C.creamTxt)),
+        child: Text(L.pri,
+            style: C.chronicle
+                ? disp(size: 10, w: FontWeight.w700, color: C.creamTxt)
+                    .copyWith(letterSpacing: .5)
+                : serifHk(size: 11, color: C.creamTxt)),
       );
 
   // ---------------- add bar ----------------
@@ -1788,7 +1838,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           foregroundColor: C.greenD,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-      child: Text('新增', style: serifHk(size: 13, color: C.greenD)),
+      child: Text(L.add, style: serifHk(size: 13, color: C.greenD)),
     );
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
@@ -2084,6 +2134,57 @@ class _LatticePainter extends CustomPainter {
     for (double y = 0; y <= size.height; y += 15) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
     }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Chronicle's logogram: a red wax seal with a cream "C" monogram, standing in
+/// for Cadence's 節奏 in the masthead.
+class SealMark extends StatelessWidget {
+  final double size;
+  const SealMark({super.key, this.size = 58});
+  @override
+  Widget build(BuildContext context) =>
+      SizedBox(width: size, height: size, child: CustomPaint(painter: _SealPainter()));
+}
+
+class _SealPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size s) {
+    final w = s.width;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Offset.zero & s, Radius.circular(w * .16)),
+      Paint()..color = C.red,
+    );
+    // cream inner keyline
+    final inset = w * .12;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Rect.fromLTWH(inset, inset, w - 2 * inset, s.height - 2 * inset),
+          Radius.circular(w * .08)),
+      Paint()
+        ..color = C.creamTxt.withValues(alpha: .85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * .03,
+    );
+    // a cream "C" monogram
+    final mark = Paint()
+      ..color = C.creamTxt
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * .08
+      ..strokeCap = StrokeCap.round;
+    final rad = w * .21;
+    const pi = 3.14159;
+    // a "C": arc with a gap on the right side
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(w / 2, s.height / 2), radius: rad),
+      0.30 * pi, // start lower-right
+      1.40 * pi, // sweep clockwise, leaving the right open
+      false,
+      mark,
+    );
   }
 
   @override
