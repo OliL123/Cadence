@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'palette.dart';
 import 'models.dart';
@@ -38,6 +39,14 @@ class CadenceApp extends StatelessWidget {
     return MaterialApp(
       title: 'Cadence',
       debugShowCheckedModeBanner: false,
+      // en-GB so date pickers read/enter as DD/MM/YYYY.
+      locale: const Locale('en', 'GB'),
+      supportedLocales: const [Locale('en', 'GB'), Locale('en', 'US')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: C.paper,
@@ -1361,7 +1370,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
                 _chip(g.name.toUpperCase(), g.c),
                 GestureDetector(
-                  onTap: () => _pickDue(t),
+                  onTap: () => _editDue(t),
                   child: due == null
                       ? _iconChip(Icons.event_outlined)
                       : Text('◷ $due', style: mono(size: 11, color: soon ? C.red : C.ink3)),
@@ -1668,6 +1677,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// Wraps a date/time picker in the cha-chaan-teng palette.
   Widget _themedPicker(BuildContext ctx, Widget? child) => Theme(
         data: Theme.of(ctx).copyWith(
+          textTheme: GoogleFonts.hankenGroteskTextTheme(Theme.of(ctx).textTheme),
           colorScheme: const ColorScheme.light(
             primary: C.red,
             onPrimary: C.creamTxt,
@@ -1708,6 +1718,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final m = int.tryParse(p[1]);
     if (h == null || m == null) return null;
     return TimeOfDay(hour: h, minute: m);
+  }
+
+  /// Tap the due chip: pick the date, then the time in one flow (Cancel on the
+  /// time step just leaves the time unchanged).
+  Future<void> _editDue(Task t) async {
+    await _pickDue(t);
+    if (t.dueISO == null) return;
+    await _pickTime(t);
   }
 
   /// Set/clear a task's due time (a due date is set first if needed).

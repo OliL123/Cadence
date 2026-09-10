@@ -38,11 +38,11 @@
   <!-- Auto-update: the deploy script stamps a build id here + into build.txt.
        We poll build.txt and, when it changes, reload with a cache-busting query
        so a new deploy is picked up without a manual hard refresh. -->
-  <script>window.__CADENCE_BUILD__ = "20260909204734";</script>
+  <script>window.__CADENCE_BUILD__ = "20260909205945";</script>
   <script>
     (function () {
       var B = window.__CADENCE_BUILD__;
-      if (!B || B === "20260909204734") return; // dev build — no auto-update
+      if (!B || B === "20260909205945") return; // dev build — no auto-update
       async function check() {
         try {
           var r = await fetch("build.txt?ts=" + Date.now(), { cache: "no-store" });
@@ -60,13 +60,13 @@
 </head>
 <body>
   <!--
-    You can customize the "flutter_bootstrap.js?v=20260909204734" script.
+    You can customize the "flutter_bootstrap.js?v=20260909205945" script.
     This is useful to provide a custom configuration to the Flutter loader
     or to give the user feedback during the initialization process.
 
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <script src="flutter_bootstrap.js?v=20260909204734" async></script>
+  <script src="flutter_bootstrap.js?v=20260909205945" async></script>
 </body>
 </html>
