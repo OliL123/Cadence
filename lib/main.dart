@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'palette.dart';
 import 'models.dart';
 import 'store.dart';
+import 'hoverable.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'today_card.dart';
 import 'mahjong_page.dart';
@@ -375,8 +376,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final on = store.filter == key;
     return Padding(
       padding: const EdgeInsets.only(right: 7),
-      child: GestureDetector(
+      child: Hoverable(
         onTap: () => store.setFilter(key),
+        borderRadius: BorderRadius.circular(8),
+        hoverColor: on ? const Color(0x26FFFFFF) : const Color(0x1F000000),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 11),
           alignment: Alignment.center,
@@ -673,8 +676,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _viewSwitch() {
     Widget seg(String v, String label) {
       final on = store.viewMode == v;
-      return GestureDetector(
+      return Hoverable(
         onTap: () => store.setViewMode(v),
+        borderRadius: BorderRadius.zero,
+        hoverColor: on ? const Color(0x26FFFFFF) : const Color(0x1F000000),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           color: on ? C.green : C.paper2,
@@ -810,8 +815,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
   // ---------------- sync ----------------
-  Widget _apkButton() => GestureDetector(
+  Widget _apkButton() => Hoverable(
         onTap: apk.downloadApk,
+        borderRadius: BorderRadius.circular(5),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
           decoration: BoxDecoration(
@@ -839,8 +845,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             SyncStage.error => (Icons.cloud_off, 'Sync error', C.red),
             SyncStage.signedOut => (Icons.cloud_outlined, 'Sync', C.ink3),
           };
-          return GestureDetector(
+          return Hoverable(
             onTap: _openSyncSheet,
+            borderRadius: BorderRadius.circular(6),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               decoration: BoxDecoration(
@@ -1014,8 +1021,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
           const SizedBox(width: 8),
           Text(count, style: mono(size: 11, color: C.creamTxt)),
-          GestureDetector(
+          Hoverable(
             onTap: () => _quickAdd(g),
+            borderRadius: BorderRadius.circular(6),
+            hoverColor: const Color(0x26FFFFFF),
             child: Container(
               margin: const EdgeInsets.only(left: 6),
               padding: const EdgeInsets.all(3),
@@ -1362,8 +1371,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           const Spacer(),
           Text(count, style: mono(size: 11, color: C.creamTxt)),
           const SizedBox(width: 9),
-          GestureDetector(
+          Hoverable(
             onTap: _addDaily,
+            borderRadius: BorderRadius.circular(6),
+            hoverColor: const Color(0x26FFFFFF),
             child: Container(
               padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
@@ -1380,8 +1391,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return Padding(
       padding: const EdgeInsets.only(bottom: 9, left: 2),
       child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        GestureDetector(
+        Hoverable(
           onTap: () => store.toggleDailyDone(t),
+          borderRadius: BorderRadius.circular(6),
           child: Container(
             width: 20,
             height: 20,
@@ -1532,8 +1544,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
               ),
               if (!t.done)
-                GestureDetector(
+                Hoverable(
                   onTap: () => store.toggleStar(t),
+                  borderRadius: BorderRadius.circular(6),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                     child: Icon(t.star ? Icons.star : Icons.star_border,
@@ -1546,8 +1559,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               padding: const EdgeInsets.only(left: 32, top: 8),
               child: Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
                 _chip(g.name.toUpperCase(), g.c),
-                GestureDetector(
+                Hoverable(
                   onTap: () => _editDue(t),
+                  borderRadius: BorderRadius.circular(5),
                   child: due == null
                       ? _iconChip(Icons.event_outlined)
                       : overdue
@@ -1578,8 +1592,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _checkbox(Task t, Color color) => GestureDetector(
+  Widget _checkbox(Task t, Color color) => Hoverable(
         onTap: () => _completeWithUndo(t),
+        borderRadius: BorderRadius.circular(6),
         child: Container(
           width: 20,
           height: 20,
