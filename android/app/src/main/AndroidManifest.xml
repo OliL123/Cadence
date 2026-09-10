@@ -52,6 +52,14 @@
             android:permission="android.permission.BIND_REMOTEVIEWS"
             android:exported="false" />
 
+        <!-- Invisible trampoline for widget row taps (open app vs silent toggle/star) -->
+        <activity
+            android:name=".WidgetActionActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
+
         <!-- home_widget: background tap handling (checkbox -> mark done) -->
         <receiver
             android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"

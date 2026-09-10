@@ -65,6 +65,10 @@ class WallViewsFactory(private val context: Context) :
         row.setTextColor(R.id.item_title, if (done) 0xFF9A9078.toInt() else 0xFF2A2418.toInt())
 
         // Per-row tap targets, filled into the ListView's pending-intent template.
+        // The whole row opens the app; the check/star do their silent action
+        // (child taps take precedence over the row's).
+        row.setOnClickFillInIntent(R.id.item_root,
+            Intent().apply { data = Uri.parse("cadence://open?id=$id") })
         row.setOnClickFillInIntent(R.id.item_check,
             Intent().apply { data = Uri.parse("cadence://toggle?id=$id") })
         row.setOnClickFillInIntent(R.id.item_star,
