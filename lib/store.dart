@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'palette.dart';
 import 'models.dart';
 
 /// Reactive, persisted app state. Every mutation notifies listeners and saves.
@@ -146,10 +147,37 @@ class CadenceStore extends ChangeNotifier {
     _reconcile();
   }
 
+  /// Set by [applyRemoteState] when its per-task merge kept a locally-newer task
+  /// over the incoming cloud copy — the sync layer then pushes the corrected
+  /// merge back so every device converges.
+  bool pendingMergePush = false;
+
   /// Apply cloud state, persist it locally (so disk mirrors the cloud and a
   /// later resume can't push stale data back), and notify the UI.
-  void applyRemoteState(Map<String, dynamic> j) {
-    applyState(j); // sets updatedAt from the cloud payload
+  ///
+  /// Whole-state LWW decides the *structure* (which tasks exist), but within
+  /// that we merge tasks per-id by their own [Task.uAt] clock: if this device
+  /// edited a task more recently than the incoming copy, we keep ours. That
+  /// stops a stale device's blob from silently reverting a per-task edit — e.g.
+  /// a task just made a daily jumping back into its old group.
+  void applyRemoteState(Map<String, dynamic> j, {bool merge = true}) {
+    final localById = {for (final t in tasks) t.id: t};
+    applyState(j); // replaces tasks with the (newer) incoming blob
+    var swapped = false;
+    if (merge) {
+      for (var i = 0; i < tasks.length; i++) {
+        final loc = localById[tasks[i].id];
+        if (loc != null && loc.uAt > tasks[i].uAt) {
+          tasks[i] = loc; // our edit is newer — keep it
+          swapped = true;
+        }
+      }
+    }
+    if (swapped) {
+      _reconcile(); // re-attach wall/tiles for the swapped task objects
+      updatedAt = DateTime.now().millisecondsSinceEpoch; // our merge is newest
+      pendingMergePush = true; // ask sync to push the corrected state up
+    }
     save();
     notifyListeners();
   }
@@ -174,6 +202,14 @@ class CadenceStore extends ChangeNotifier {
     updatedAt = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
     save();
+  }
+
+  /// Like [_changed], but also stamps this task's own edit clock so a stale
+  /// device can't clobber the edit when its whole-state blob syncs in (the
+  /// per-task merge in [applyRemoteState] keeps the newer copy of each task).
+  void _touch(Task t) {
+    t.uAt = DateTime.now().millisecondsSinceEpoch;
+    _changed();
   }
 
   /// Ensure every starred task has a tile and is on the wall; keep the deck sane.
@@ -304,12 +340,12 @@ class CadenceStore extends ChangeNotifier {
     if (due != null) _applyDue(t, due);
     if (dueTime != null && due != null) t.dueTime = dueTime;
     tasks.insert(0, t);
-    _changed();
+    _touch(t);
   }
 
   void setDueTime(Task t, String? hhmm) {
     t.dueTime = hhmm;
-    _changed();
+    _touch(t);
   }
 
   void setWeatherLocation(String name, double lat, double lon) {
@@ -356,7 +392,7 @@ class CadenceStore extends ChangeNotifier {
   /// it was starred.
   void insertTask(Task t, int index) {
     tasks.insert(index.clamp(0, tasks.length), t);
-    _changed();
+    _touch(t);
   }
 
   /// Delete every finished task now (the Done header's "clear" action).
@@ -389,7 +425,7 @@ class CadenceStore extends ChangeNotifier {
       }
     }
     if (!t.done) t.doneAt = null; // reopened — restart its clock if finished again
-    _changed();
+    _touch(t);
   }
 
   // ---------- daily rituals ----------
@@ -419,7 +455,7 @@ class CadenceStore extends ChangeNotifier {
       t.streak = base + 1;
       t.doneDate = _todayStr;
     }
-    _changed();
+    _touch(t);
   }
 
   void setDaily(Task t, bool v) {
@@ -438,14 +474,14 @@ class CadenceStore extends ChangeNotifier {
       t.doneDate = null;
       t.streak = 0;
     }
-    _changed();
+    _touch(t);
   }
 
   void addDaily(String title) {
     if (title.trim().isEmpty) return;
-    tasks.insert(0,
-        Task(id: _newId(), title: title.trim(), group: groups.first.key, daily: true));
-    _changed();
+    final t = Task(id: _newId(), title: title.trim(), group: groups.first.key, daily: true);
+    tasks.insert(0, t);
+    _touch(t);
   }
 
   /// Returns true if a tile was newly drawn onto the wall (for 自摸 detection).
@@ -456,7 +492,7 @@ class CadenceStore extends ChangeNotifier {
       _returnTile(t.tile);
       t.tile = null;
       t.star = false;
-      _changed();
+      _touch(t);
       return false;
     } else {
       final tile = t.pri ? drawDragon() : drawTile();
@@ -464,7 +500,7 @@ class CadenceStore extends ChangeNotifier {
       t.tile = tile;
       t.star = true;
       wall.add(t.id);
-      _changed();
+      _touch(t);
       return true;
     }
   }
@@ -472,7 +508,7 @@ class CadenceStore extends ChangeNotifier {
   bool togglePri(Task t) {
     t.pri = !t.pri;
     if (t.done) {
-      _changed(); // priority flag only; no wall changes for finished tasks
+      _touch(t); // priority flag only; no wall changes for finished tasks
       return false;
     }
     var drew = false;
@@ -488,7 +524,7 @@ class CadenceStore extends ChangeNotifier {
       _returnTile(t.tile);
       t.tile = (t.pri ? drawDragon() : drawTile()) ?? Tile(t.pri ? 'z' : 'm', 1);
     }
-    _changed();
+    _touch(t);
     return drew;
   }
 
@@ -506,7 +542,7 @@ class CadenceStore extends ChangeNotifier {
 
   void setTitle(Task t, String v) {
     if (v.trim().isNotEmpty) t.title = v.trim();
-    _changed();
+    _touch(t);
   }
 
   void _applyDue(Task t, DateTime? d) {
@@ -518,35 +554,39 @@ class CadenceStore extends ChangeNotifier {
 
   void setDue(Task t, DateTime? d) {
     _applyDue(t, d);
-    _changed();
+    _touch(t);
   }
 
   void moveTask(Task t, String group) {
     t.group = group;
-    _changed();
+    _touch(t);
   }
 
   // ---------- subtasks ----------
   void toggleOpen(Task t) {
     t.open = !t.open;
-    _changed();
+    _touch(t);
   }
 
   void addSub(Task t, String title) {
     if (title.trim().isEmpty) return;
     t.sub.add(SubTask(title.trim()));
     t.open = true;
-    _changed();
+    _touch(t);
   }
 
   void toggleSub(SubTask s) {
     s.done = !s.done;
+    // find the owning task so its per-task clock advances too
+    for (final t in tasks) {
+      if (t.sub.contains(s)) { _touch(t); return; }
+    }
     _changed();
   }
 
   void deleteSub(Task t, SubTask s) {
     t.sub.remove(s);
-    _changed();
+    _touch(t);
   }
 
   // ---------- groups ----------
@@ -621,6 +661,9 @@ class CadenceStore extends ChangeNotifier {
   /// Best-effort Chinese label for a group name. Whole phrase first, then the
   /// first recognised word; blank if nothing matches.
   static String zhForName(String name) {
+    // Chronicle groups carry no auto Chinese label (its own Latin defaults, set
+    // in defaultGroups, are left untouched because callers only assign non-empty).
+    if (C.chronicle) return '';
     final n = name.trim().toLowerCase();
     if (n.isEmpty) return '';
     if (_zhDict.containsKey(n)) return _zhDict[n]!;
