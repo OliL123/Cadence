@@ -318,6 +318,14 @@ class CadenceStore extends ChangeNotifier {
     _changed();
   }
 
+  /// Set the chosen calendars WITHOUT bumping the sync clock — used for the
+  /// auto-default so it can never overwrite a real selection syncing in.
+  void setGcalCalendarsQuiet(List<String> ids) {
+    gcalCalendars = ids;
+    notifyListeners();
+    save();
+  }
+
   void toggleHolidayCountry(String code) {
     if (holidayCountries.contains(code)) {
       holidayCountries = holidayCountries.where((c) => c != code).toList();
