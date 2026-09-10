@@ -109,6 +109,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final _addCtl = TextEditingController();
   final _boardCtl = ScrollController();
   String _addGroup = store.groups.first.key;
+  String _mobileView = 'tasks'; // mobile bottom-nav: 'tasks' or 'focus'
   DateTime? _addDate;
   int? _editingTaskId;
   final _editCtl = TextEditingController();
@@ -155,20 +156,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final wide = MediaQuery.of(context).size.width >= 1040;
     return Scaffold(
       body: SafeArea(
+        bottom: wide, // on mobile the bottom nav handles the inset
         child: ListenableBuilder(
           listenable: store,
           builder: (context, _) {
             if (!store.groups.any((g) => g.key == _addGroup)) {
               _addGroup = store.groups.first.key;
             }
-            return LayoutBuilder(builder: (context, c) {
-              return c.maxWidth >= 1040 ? _wideLayout() : _stackedLayout(c.maxWidth);
-            });
+            if (wide) return _wideLayout();
+            // Mobile: tasks and the mahjong wall are separate bottom-nav pages.
+            return _mobileView == 'focus'
+                ? _focusPage()
+                : _stackedLayout(MediaQuery.of(context).size.width);
           },
         ),
       ),
+      bottomNavigationBar: wide ? null : _mobileNav(),
     );
   }
 
@@ -216,19 +222,63 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ]),
             ),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 440,
-            child: _enamel(
-              edge: C.green,
-              padding: EdgeInsets.zero,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(5),
-                child: const FocusWall(showHeader: true),
-              ),
-            ),
-          ),
         ]),
+      ),
+    );
+  }
+
+  /// Full-screen mahjong Focus wall — its own page on mobile (a bottom-nav tab).
+  Widget _focusPage() => Container(
+        color: C.paper2,
+        padding: const EdgeInsets.all(10),
+        child: _enamel(
+          edge: C.green,
+          padding: EdgeInsets.zero,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: const FocusWall(showHeader: true),
+          ),
+        ),
+      );
+
+  /// Bottom nav to switch between the tasks page and the mahjong page (mobile).
+  Widget _mobileNav() {
+    Widget item(String id, String zh, String en, IconData icon) {
+      final on = _mobileView == id;
+      return Expanded(
+        child: InkWell(
+          onTap: () => setState(() => _mobileView = id),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            color: on ? C.green : C.paper,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon, size: 20, color: on ? C.creamTxt : C.ink3),
+              const SizedBox(height: 3),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Text(zh, style: serifHk(size: 13, color: on ? C.creamTxt : C.ink2)),
+                const SizedBox(width: 5),
+                Text(en,
+                    style: mono(size: 9, color: on ? C.creamTxt : C.ink3)
+                        .copyWith(letterSpacing: .5)),
+              ]),
+            ]),
+          ),
+        ),
+      );
+    }
+
+    return Material(
+      color: C.paper,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          decoration: const BoxDecoration(border: Border(top: BorderSide(color: C.line, width: 1.5))),
+          child: Row(children: [
+            item('tasks', '待辦', 'TASKS', Icons.check_box_outlined),
+            Container(width: 1.5, height: 46, color: C.line),
+            item('focus', '麻雀', 'FOCUS', Icons.grid_view_rounded),
+          ]),
+        ),
       ),
     );
   }
@@ -1072,11 +1122,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           style: mono(size: 9.5, color: C.red, w: FontWeight.w700)
                               .copyWith(letterSpacing: 1.6)),
                     ),
-                    Row(mainAxisSize: MainAxisSize.min, children: [
-                      if (apk.canDownloadApk) ...[
-                        _apkButton(),
-                        const SizedBox(width: 8),
-                      ],
+                    // A Wrap (not Row) so APK + Sync flow to a new line on
+                    // narrow screens instead of overflowing next to the chip.
+                    Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                      if (apk.canDownloadApk) _apkButton(),
                       _syncButton(),
                     ]),
                   ],
