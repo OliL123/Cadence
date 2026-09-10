@@ -139,23 +139,39 @@ class GCalService extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _storeWired = false;
+  String _lastSelKey = '';
+
   Future<void> _afterAuth() async {
     try {
       await _loadCalendars();
       // Default: if the user hasn't chosen yet, show their primary calendar.
+      // Quiet (no sync bump) so it can't clobber a selection syncing in.
       if (store.gcalCalendars.isEmpty && calendars.isNotEmpty) {
         final primary = calendars.firstWhere((c) => c.id.contains('@'),
             orElse: () => calendars.first);
-        store.setGcalCalendars([primary.id]);
+        store.setGcalCalendarsQuiet([primary.id]);
       }
       await refreshEvents();
       stage = GCalStage.connected;
       message = null;
+      // Refetch when the selection changes (e.g. it just synced from another
+      // device) so events reflect it without needing a reload.
+      if (!_storeWired) {
+        store.addListener(_onStoreChanged);
+        _storeWired = true;
+      }
     } catch (err) {
       stage = GCalStage.error;
       message = 'Couldn’t load your calendars.';
     }
     notifyListeners();
+  }
+
+  void _onStoreChanged() {
+    if (isConnected && store.gcalCalendars.join(',') != _lastSelKey) {
+      refreshEvents();
+    }
   }
 
   Map<String, String> get _headers => {'Authorization': 'Bearer $_token'};
@@ -187,13 +203,13 @@ class GCalService extends ChangeNotifier {
     } else {
       sel.add(id);
     }
-    store.setGcalCalendars(sel); // persists + syncs across devices
+    store.setGcalCalendars(sel); // persists + syncs; _onStoreChanged refetches
     notifyListeners();
-    await refreshEvents();
   }
 
   Future<void> refreshEvents() async {
     if (_token == null) return;
+    _lastSelKey = store.gcalCalendars.join(','); // mark what we're fetching for
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day);
     final timeMin = start.toUtc().toIso8601String();
