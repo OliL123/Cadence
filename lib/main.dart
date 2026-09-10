@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'palette.dart';
@@ -112,12 +113,46 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _mobileView = 'tasks'; // mobile bottom-nav: 'tasks' or 'focus'
   DateTime? _addDate;
   int? _editingTaskId;
+  int? _highlightId; // task briefly highlighted after a widget tap
   final _editCtl = TextEditingController();
+  static const _widgetChannel = MethodChannel('cadence/widget');
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Jump to a task the home-screen widget was tapped on.
+    _widgetChannel.setMethodCallHandler((call) async {
+      if (call.method == 'openTask' && call.arguments is int) {
+        _openTask(call.arguments as int);
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final id = await _widgetChannel.invokeMethod<int>('consumeLaunchTask');
+        if (id != null) _openTask(id);
+      } catch (_) {}
+    });
+  }
+
+  /// Bring a task into view (from a widget tap): switch to the tasks page,
+  /// reveal its group (or the Done archive), and flash it.
+  void _openTask(int id) {
+    final t = store.byId(id);
+    if (t == null) return;
+    setState(() {
+      _mobileView = 'tasks';
+      if (t.done) {
+        store.setShowDone(true);
+        store.setFilter('all');
+      } else if (!t.daily) {
+        store.setFilter(t.group);
+      }
+      _highlightId = id;
+    });
+    Future.delayed(const Duration(milliseconds: 2400), () {
+      if (mounted && _highlightId == id) setState(() => _highlightId = null);
+    });
   }
 
   @override
@@ -1025,6 +1060,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             final tt = await showTimePicker(
                                 context: ctx,
                                 initialTime: time ?? TimeOfDay.now(),
+                                initialEntryMode: _timeEntryMode(),
                                 builder: _themedPicker);
                             if (tt != null) setLocal(() => time = tt);
                           },
@@ -1356,11 +1392,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final g = store.groupOf(t.group);
     final due = store.dueLabel(t);
     final soon = store.soon(t);
+    final lit = _highlightId == t.id;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: _enamel(
-        edge: g.c,
-        padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(11),
+          boxShadow: lit
+              ? [BoxShadow(color: C.mustard.withValues(alpha: .9), blurRadius: 0, spreadRadius: 3)]
+              : const [],
+        ),
+        child: _enamel(
+          edge: g.c,
+          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1434,6 +1479,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             if (t.open) _subs(t, g.c),
           ],
+        ),
         ),
       ),
     );
@@ -1758,6 +1804,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: child!,
       );
 
+  /// On phones/folds the clock dial gets squished, so use keypad entry there.
+  TimePickerEntryMode _timeEntryMode() =>
+      MediaQuery.of(context).size.width < 1040
+          ? TimePickerEntryMode.inputOnly
+          : TimePickerEntryMode.input;
+
   /// "14:30" -> TimeOfDay, or null.
   TimeOfDay? _parseTime(String? hhmm) {
     if (hhmm == null) return null;
@@ -1786,6 +1838,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final tod = await showTimePicker(
       context: context,
       initialTime: _parseTime(t.dueTime) ?? const TimeOfDay(hour: 9, minute: 0),
+      initialEntryMode: _timeEntryMode(),
       builder: _themedPicker,
     );
     if (tod != null) {

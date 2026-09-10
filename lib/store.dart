@@ -25,6 +25,7 @@ class CadenceStore extends ChangeNotifier {
   double weatherLat = 42.28;
   double weatherLon = -83.74;
   List<String> holidayCountries = ['US']; // ISO-3166 alpha-2 codes, colour-coded
+  List<String> gcalCalendars = []; // chosen Google sub-calendar ids (synced)
 
   int _newId() => ++_uid;
 
@@ -101,6 +102,7 @@ class CadenceStore extends ChangeNotifier {
         'wxLat': weatherLat,
         'wxLon': weatherLon,
         'holCountries': holidayCountries,
+        'gcalCals': gcalCalendars,
       };
 
   /// Replace the whole in-memory state from a map (from disk or from the cloud).
@@ -126,6 +128,9 @@ class CadenceStore extends ChangeNotifier {
       holidayCountries = (j['holCountries'] as List).map((e) => e as String).toList();
     } else if (j['holCountry'] != null) {
       holidayCountries = [j['holCountry'] as String]; // migrate old single value
+    }
+    if (j['gcalCals'] is List) {
+      gcalCalendars = (j['gcalCals'] as List).map((e) => e as String).toList();
     }
     final rawDeck = j['deck'];
     if (rawDeck is List) {
@@ -305,6 +310,11 @@ class CadenceStore extends ChangeNotifier {
     weatherPlace = name;
     weatherLat = lat;
     weatherLon = lon;
+    _changed();
+  }
+
+  void setGcalCalendars(List<String> ids) {
+    gcalCalendars = ids;
     _changed();
   }
 
