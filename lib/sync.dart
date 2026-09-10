@@ -19,6 +19,7 @@ class SyncService extends ChangeNotifier {
 
   SyncStage stage = SyncStage.signedOut;
   String? message;
+  DateTime? lastSyncedAt; // last successful push or pull
 
   Timer? _pushTimer;
   RealtimeChannel? _channel;
@@ -120,6 +121,7 @@ class SyncService extends ChangeNotifier {
         // Cloud is newer — take it.
         store.applyRemoteState(data);
         _lastSyncedJson = jsonEncode(store.exportState());
+        lastSyncedAt = DateTime.now();
       } else {
         // Our local copy is newer (or equal) — push it up so the cloud matches.
         await _push(force: true);
@@ -154,6 +156,8 @@ class SyncService extends ChangeNotifier {
             if (remoteTs <= store.updatedAt) return; // stale — our copy is newer
             store.applyRemoteState(data);
             _lastSyncedJson = jsonEncode(store.exportState());
+            lastSyncedAt = DateTime.now();
+            notifyListeners();
           },
         )
         .subscribe();
@@ -176,6 +180,8 @@ class SyncService extends ChangeNotifier {
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
       _lastSyncedJson = json;
+      lastSyncedAt = DateTime.now();
+      notifyListeners();
     } catch (_) {
       // offline / transient — will retry on the next change
     }
