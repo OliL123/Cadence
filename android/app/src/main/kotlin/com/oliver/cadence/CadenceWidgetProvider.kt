@@ -95,15 +95,13 @@ class CadenceWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.header_title, pi)
         }
 
-        // Template for per-row taps -> home_widget's background receiver. Base
-        // intent carries NO data so each row's fillInIntent supplies its own URI.
-        val base = Intent(
-            context,
-            es.antonborri.home_widget.HomeWidgetBackgroundReceiver::class.java
-        ).apply {
-            action = "es.antonborri.home_widget.action.BACKGROUND"
-        }
-        val template = PendingIntent.getBroadcast(
+        // Template for per-row taps -> a tiny trampoline activity. It routes the
+        // row's fill-in URI: cadence://open opens the app, cadence://toggle|star
+        // are forwarded to home_widget's background receiver (silent, no UI).
+        // An Activity template is required so a row tap can reliably launch the
+        // app (a background receiver can't start an activity on modern Android).
+        val base = Intent(context, WidgetActionActivity::class.java)
+        val template = PendingIntent.getActivity(
             context, widgetId, base,
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
