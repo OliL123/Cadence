@@ -481,9 +481,9 @@ class _TodayCardState extends State<TodayCard> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(children: [
-              for (final h in _wx!.hours.take(14))
+              for (final h in _wx!.hours.take(24))
                 Padding(
-                  padding: const EdgeInsets.only(right: 14),
+                  padding: const EdgeInsets.only(right: 16),
                   child: _hourTile(h),
                 ),
             ]),
