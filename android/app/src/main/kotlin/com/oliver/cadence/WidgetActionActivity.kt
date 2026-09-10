@@ -23,10 +23,13 @@ class WidgetActionActivity : Activity() {
         val host = uri?.host
 
         if (host == "open") {
-            val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            // Launch the app carrying the task URI so it can jump to that task.
+            val launch = Intent(this, MainActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
+                data = uri
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
-            if (launch != null) startActivity(launch)
+            startActivity(launch)
         } else if (uri != null) {
             // Forward to home_widget's background receiver, which runs the Dart
             // interactivity callback (toggle/star) without opening the app.

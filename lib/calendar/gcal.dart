@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../store.dart';
+
 // Platform-split OAuth: real GIS token on web, no-op on mobile (for now).
 import 'gcal_auth_stub.dart' if (dart.library.js_interop) 'gcal_auth_web.dart' as auth;
 
@@ -32,7 +34,6 @@ class GCalService extends ChangeNotifier {
   static final GCalService instance = GCalService._();
 
   static const _kConnected = 'gcal_connected';
-  static const _kSelected = 'gcal_selected';
   static const _kToken = 'gcal_token';
   static const _kTokenExp = 'gcal_token_exp'; // ms-since-epoch expiry
 
@@ -42,7 +43,8 @@ class GCalService extends ChangeNotifier {
   DateTime? _tokenExp;
   List<GCalCalendar> calendars = []; // full list from the account
   List<GCalEvent> events = []; // upcoming events from the selected calendars
-  List<String> _selected = []; // selected calendar ids
+  // The chosen sub-calendars live in the synced store (store.gcalCalendars) so
+  // the selection persists and follows you across devices.
 
   bool _wantConnected = false;
 
@@ -54,19 +56,14 @@ class GCalService extends ChangeNotifier {
   bool get supported => auth.gcalAuthSupported;
   bool get isConnected => stage == GCalStage.connected;
   bool get isBusy => stage == GCalStage.connecting;
-  List<String> get selectedIds => _selected;
+  List<String> get selectedIds => store.gcalCalendars;
 
   /// Load saved prefs. Reuse a still-valid cached token (so a refresh doesn't
   /// re-prompt); otherwise try a silent reconnect if the user linked before.
+  /// The calendar *selection* lives in the synced store, not here.
   Future<void> init() async {
     final p = await SharedPreferences.getInstance();
     _wantConnected = p.getBool(_kConnected) ?? false;
-    final raw = p.getString(_kSelected);
-    if (raw != null) {
-      try {
-        _selected = (jsonDecode(raw) as List).map((e) => e as String).toList();
-      } catch (_) {}
-    }
     final savedTok = p.getString(_kToken);
     final savedExp = p.getInt(_kTokenExp);
     if (savedTok != null && savedExp != null) {
@@ -85,7 +82,6 @@ class GCalService extends ChangeNotifier {
   Future<void> _save() async {
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kConnected, _wantConnected);
-    await p.setString(_kSelected, jsonEncode(_selected));
     if (_token != null && _tokenExp != null) {
       await p.setString(_kToken, _token!);
       await p.setInt(_kTokenExp, _tokenExp!.millisecondsSinceEpoch);
@@ -147,11 +143,10 @@ class GCalService extends ChangeNotifier {
     try {
       await _loadCalendars();
       // Default: if the user hasn't chosen yet, show their primary calendar.
-      if (_selected.isEmpty && calendars.isNotEmpty) {
+      if (store.gcalCalendars.isEmpty && calendars.isNotEmpty) {
         final primary = calendars.firstWhere((c) => c.id.contains('@'),
             orElse: () => calendars.first);
-        _selected = [primary.id];
-        await _save();
+        store.setGcalCalendars([primary.id]);
       }
       await refreshEvents();
       stage = GCalStage.connected;
@@ -183,15 +178,16 @@ class GCalService extends ChangeNotifier {
     ];
   }
 
-  bool isSelected(String id) => _selected.contains(id);
+  bool isSelected(String id) => store.gcalCalendars.contains(id);
 
   Future<void> toggleCalendar(String id) async {
-    if (_selected.contains(id)) {
-      _selected = _selected.where((x) => x != id).toList();
+    final sel = store.gcalCalendars.toList();
+    if (sel.contains(id)) {
+      sel.remove(id);
     } else {
-      _selected = [..._selected, id];
+      sel.add(id);
     }
-    await _save();
+    store.setGcalCalendars(sel); // persists + syncs across devices
     notifyListeners();
     await refreshEvents();
   }
@@ -204,7 +200,7 @@ class GCalService extends ChangeNotifier {
     final timeMax = start.add(const Duration(days: 21)).toUtc().toIso8601String();
     final byId = {for (final c in calendars) c.id: c};
     final out = <GCalEvent>[];
-    for (final id in _selected) {
+    for (final id in store.gcalCalendars) {
       final color = byId[id]?.color ?? const Color(0xFF2C4C7C);
       final uri = Uri.parse(
           'https://www.googleapis.com/calendar/v3/calendars/${Uri.encodeComponent(id)}/events'
