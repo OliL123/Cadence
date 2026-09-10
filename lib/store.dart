@@ -26,6 +26,7 @@ class CadenceStore extends ChangeNotifier {
   double weatherLon = -83.74;
   List<String> holidayCountries = ['US']; // ISO-3166 alpha-2 codes, colour-coded
   List<String> gcalCalendars = []; // chosen Google sub-calendar ids (synced)
+  int gcalCalsUpdatedAt = 0; // own LWW clock for the selection (independent)
 
   int _newId() => ++_uid;
 
@@ -103,6 +104,7 @@ class CadenceStore extends ChangeNotifier {
         'wxLon': weatherLon,
         'holCountries': holidayCountries,
         'gcalCals': gcalCalendars,
+        'gcalCalsAt': gcalCalsUpdatedAt,
       };
 
   /// Replace the whole in-memory state from a map (from disk or from the cloud).
@@ -129,8 +131,12 @@ class CadenceStore extends ChangeNotifier {
     } else if (j['holCountry'] != null) {
       holidayCountries = [j['holCountry'] as String]; // migrate old single value
     }
-    if (j['gcalCals'] is List) {
+    // The calendar selection has its own clock so it isn't clobbered by an
+    // unrelated edit on another device — only a *newer selection* wins.
+    final remoteGcalAt = (j['gcalCalsAt'] ?? 0) as int;
+    if (j['gcalCals'] is List && remoteGcalAt >= gcalCalsUpdatedAt) {
       gcalCalendars = (j['gcalCals'] as List).map((e) => e as String).toList();
+      gcalCalsUpdatedAt = remoteGcalAt;
     }
     final rawDeck = j['deck'];
     if (rawDeck is List) {
@@ -315,11 +321,12 @@ class CadenceStore extends ChangeNotifier {
 
   void setGcalCalendars(List<String> ids) {
     gcalCalendars = ids;
+    gcalCalsUpdatedAt = DateTime.now().millisecondsSinceEpoch; // an explicit pick
     _changed();
   }
 
-  /// Set the chosen calendars WITHOUT bumping the sync clock — used for the
-  /// auto-default so it can never overwrite a real selection syncing in.
+  /// Set the chosen calendars WITHOUT stamping the selection clock — used for
+  /// the auto-default so it can never win against a real pick syncing in.
   void setGcalCalendarsQuiet(List<String> ids) {
     gcalCalendars = ids;
     notifyListeners();
