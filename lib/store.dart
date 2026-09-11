@@ -20,6 +20,7 @@ class CadenceStore extends ChangeNotifier {
   String sortMode = 'manual'; // 'manual' or 'due' (sort each group by due date)
   String filter = 'all'; // 'all' or a group key (left-rail selection)
   bool showDone = false;
+  bool headerCollapsed = false; // collapse masthead + TODAY card for more list room
   int updatedAt = 0; // ms since epoch of the last local change (for sync LWW)
   // TODAY card preferences (synced)
   String weatherPlace = 'Ann Arbor';
@@ -99,6 +100,7 @@ class CadenceStore extends ChangeNotifier {
         'sortMode': sortMode,
         'filter': filter,
         'showDone': showDone,
+        'headerCollapsed': headerCollapsed,
         'updatedAt': updatedAt,
         'wxPlace': weatherPlace,
         'wxLat': weatherLat,
@@ -123,6 +125,7 @@ class CadenceStore extends ChangeNotifier {
     sortMode = j['sortMode'] ?? 'manual';
     filter = j['filter'] ?? 'all';
     showDone = j['showDone'] ?? false;
+    headerCollapsed = j['headerCollapsed'] ?? false;
     updatedAt = j['updatedAt'] ?? 0;
     weatherPlace = j['wxPlace'] ?? weatherPlace;
     weatherLat = (j['wxLat'] ?? weatherLat).toDouble();
@@ -719,6 +722,11 @@ class CadenceStore extends ChangeNotifier {
 
   void setShowDone(bool v) {
     showDone = v;
+    _changed();
+  }
+
+  void setHeaderCollapsed(bool v) {
+    headerCollapsed = v;
     _changed();
   }
 

@@ -288,10 +288,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(side, pad, side, 24),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _masthead(),
+          if (!store.headerCollapsed) ...[
+            _masthead(),
+            const SizedBox(height: 12),
+            const TodayCard(),
+            const SizedBox(height: 8),
+          ],
+          _headerCollapseBar(),
           const SizedBox(height: 12),
-          const TodayCard(),
-          const SizedBox(height: 16),
           _enamel(
             edge: C.green,
             padding: EdgeInsets.zero,
@@ -321,6 +325,39 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ]),
             ),
           ),
+        ]),
+      ),
+    );
+  }
+
+  /// A slim strip that collapses/expands the masthead + TODAY card, so the
+  /// task list can take the whole screen when the header isn't needed. When
+  /// collapsed it still shows the app name, so you know where you are.
+  Widget _headerCollapseBar() {
+    final collapsed = store.headerCollapsed;
+    return Hoverable(
+      onTap: () => store.setHeaderCollapsed(!collapsed),
+      borderRadius: BorderRadius.circular(7),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: C.chronicle ? C.paper2.withValues(alpha: .55) : C.paper2,
+          border: Border.all(color: C.line, width: 1.2),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          if (collapsed) ...[
+            Text(L.appName,
+                style: mono(size: 11, color: C.ink2, w: FontWeight.w700)
+                    .copyWith(letterSpacing: 2)),
+            const SizedBox(width: 9),
+          ],
+          Icon(collapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
+              size: 18, color: C.ink3),
+          const SizedBox(width: 4),
+          Text(collapsed ? 'Show header' : 'Hide header',
+              style: mono(size: 9.5, color: C.ink3, w: FontWeight.w600)
+                  .copyWith(letterSpacing: 1)),
         ]),
       ),
     );
@@ -793,16 +830,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         behavior: const _DragScrollBehavior(),
         child: Listener(
           onPointerSignal: (event) {
-            // Translate a vertical mouse-wheel into horizontal board scrolling.
+            // Only a *horizontal* wheel/trackpad gesture pans the board. A
+            // vertical scroll falls through to the column's own task list, so
+            // scrolling within a group no longer drags the whole board.
             if (event is PointerScrollEvent && _boardCtl.hasClients) {
-              final primary = event.scrollDelta.dy.abs() >= event.scrollDelta.dx.abs()
-                  ? event.scrollDelta.dy
-                  : event.scrollDelta.dx;
-              final target = (_boardCtl.offset + primary).clamp(
-                _boardCtl.position.minScrollExtent,
-                _boardCtl.position.maxScrollExtent,
-              );
-              _boardCtl.jumpTo(target);
+              final dx = event.scrollDelta.dx;
+              if (dx != 0 && dx.abs() > event.scrollDelta.dy.abs()) {
+                final target = (_boardCtl.offset + dx).clamp(
+                  _boardCtl.position.minScrollExtent,
+                  _boardCtl.position.maxScrollExtent,
+                );
+                _boardCtl.jumpTo(target);
+              }
             }
           },
           child: Scrollbar(
@@ -822,16 +861,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
   Widget _boardColumn(Group g) {
-    final rows = store.tasksIn(g.key).where((t) => !t.done && !t.daily).toList();
+    final all = store.tasksIn(g.key).where((t) => !t.daily).toList();
+    final rows = all.where((t) => !t.done).toList();
+    // Honour the global "Done" toggle here too, so completed cards can be
+    // reviewed in board mode (shown, de-emphasised, below the active ones).
+    final doneRows = store.showDone ? all.where((t) => t.done).toList() : const <Task>[];
     return Container(
       width: 300,
       margin: const EdgeInsets.only(right: 14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _groupHeader(g, '${rows.length}'),
-        Expanded(child: ListView(children: [for (final t in rows) _taskCard(t)])),
+        Expanded(
+          child: ListView(children: [
+            for (final t in rows) _taskCard(t),
+            if (doneRows.isNotEmpty) ...[
+              _boardDoneDivider(doneRows.length),
+              for (final t in doneRows)
+                Opacity(opacity: .6, child: _taskCard(t)),
+            ],
+          ]),
+        ),
       ]),
     );
   }
+
+  Widget _boardDoneDivider(int n) => Padding(
+        padding: const EdgeInsets.fromLTRB(2, 10, 2, 6),
+        child: Row(children: [
+          Expanded(child: Divider(color: C.line, thickness: 1)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(C.chronicle ? 'DONE · $n' : '完成 DONE · $n',
+                style: mono(size: 9, color: C.ink3, w: FontWeight.w700)
+                    .copyWith(letterSpacing: 1)),
+          ),
+          Expanded(child: Divider(color: C.line, thickness: 1)),
+        ]),
+      );
 
   Widget _addColumn() => Container(
         width: 190,

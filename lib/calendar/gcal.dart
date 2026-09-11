@@ -29,7 +29,7 @@ class GCalEvent {
 /// Read-only Google Calendar. Web-only for now (mobile needs a native OAuth
 /// client, added later). Keeps its own local prefs — deliberately NOT part of
 /// the synced store, since the OAuth token is per-device.
-class GCalService extends ChangeNotifier {
+class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   GCalService._();
   static final GCalService instance = GCalService._();
 
@@ -47,6 +47,9 @@ class GCalService extends ChangeNotifier {
   // the selection persists and follows you across devices.
 
   bool _wantConnected = false;
+  Timer? _refreshTimer;
+  bool _refreshing = false;
+  bool _observerWired = false;
 
   bool get _tokenValid =>
       _token != null &&
@@ -62,6 +65,10 @@ class GCalService extends ChangeNotifier {
   /// re-prompt); otherwise try a silent reconnect if the user linked before.
   /// The calendar *selection* lives in the synced store, not here.
   Future<void> init() async {
+    if (!_observerWired) {
+      WidgetsBinding.instance.addObserver(this);
+      _observerWired = true;
+    }
     final p = await SharedPreferences.getInstance();
     _wantConnected = p.getBool(_kConnected) ?? false;
     final savedTok = p.getString(_kToken);
@@ -94,13 +101,40 @@ class GCalService extends ChangeNotifier {
   void _storeToken((String, int) tok) {
     _token = tok.$1;
     _tokenExp = DateTime.now().add(Duration(seconds: tok.$2));
+    _scheduleRefresh();
+  }
+
+  /// Silently re-request the access token ~2 min before it expires, so a linked
+  /// calendar stays live without the user ever seeing a popup or blank list.
+  void _scheduleRefresh() {
+    _refreshTimer?.cancel();
+    if (_tokenExp == null) return;
+    final lead = _tokenExp!
+        .subtract(const Duration(minutes: 2))
+        .difference(DateTime.now());
+    // Fire at least a few seconds out; if already past-due, fire soon.
+    final delay = lead.isNegative ? const Duration(seconds: 3) : lead;
+    _refreshTimer = Timer(delay, () => unawaited(_silentRefresh()));
+  }
+
+  /// Best-effort silent token refresh. Returns true if a fresh token was
+  /// obtained. Used both by the pre-expiry timer and by 401 recovery.
+  Future<bool> _silentRefresh() async {
+    if (_refreshing) return false;
+    _refreshing = true;
+    try {
+      final t = await auth.getCalendarToken(interactive: false);
+      if (t == null) return false;
+      _storeToken(t);
+      await _save();
+      return true;
+    } finally {
+      _refreshing = false;
+    }
   }
 
   Future<void> _reconnect() async {
-    final t = await auth.getCalendarToken(interactive: false);
-    if (t == null) return; // stay idle; the Connect button remains
-    _storeToken(t);
-    await _save();
+    if (!await _silentRefresh()) return; // stay idle; the Connect button remains
     await _afterAuth();
   }
 
@@ -127,7 +161,24 @@ class GCalService extends ChangeNotifier {
     await _afterAuth();
   }
 
+  /// When the app comes back to the foreground (e.g. an iPhone PWA that was
+  /// backgrounded for hours), the token has usually expired — refresh it and
+  /// reload so the calendar isn't blank.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (!supported || !_wantConnected) return;
+    if (_tokenValid) {
+      if (isConnected) unawaited(refreshEvents());
+    } else {
+      unawaited(_silentRefresh().then((ok) {
+        if (ok) unawaited(_afterAuth());
+      }));
+    }
+  }
+
   Future<void> disconnect() async {
+    _refreshTimer?.cancel();
     _token = null;
     _tokenExp = null;
     _wantConnected = false;
@@ -176,10 +227,19 @@ class GCalService extends ChangeNotifier {
 
   Map<String, String> get _headers => {'Authorization': 'Bearer $_token'};
 
+  /// GET with automatic silent-token recovery: on a 401 (expired/revoked
+  /// token) it refreshes once and retries, so a stale token self-heals.
+  Future<http.Response> _authedGet(Uri uri) async {
+    var r = await http.get(uri, headers: _headers);
+    if (r.statusCode == 401 && await _silentRefresh()) {
+      r = await http.get(uri, headers: _headers);
+    }
+    return r;
+  }
+
   Future<void> _loadCalendars() async {
-    final r = await http.get(
+    final r = await _authedGet(
       Uri.parse('https://www.googleapis.com/calendar/v3/users/me/calendarList'),
-      headers: _headers,
     );
     if (r.statusCode != 200) throw 'calendarList ${r.statusCode}';
     final j = jsonDecode(r.body) as Map<String, dynamic>;
@@ -222,7 +282,7 @@ class GCalService extends ChangeNotifier {
           'https://www.googleapis.com/calendar/v3/calendars/${Uri.encodeComponent(id)}/events'
           '?timeMin=$timeMin&timeMax=$timeMax&singleEvents=true&orderBy=startTime&maxResults=20');
       try {
-        final r = await http.get(uri, headers: _headers);
+        final r = await _authedGet(uri);
         if (r.statusCode != 200) continue;
         final j = jsonDecode(r.body) as Map<String, dynamic>;
         for (final it in (j['items'] ?? []) as List) {
