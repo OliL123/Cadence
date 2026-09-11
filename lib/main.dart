@@ -476,15 +476,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               // same height. A bounded height lets CrossAxisAlignment.stretch
               // fill both without IntrinsicHeight (which can't measure the
               // masthead's Wrap or TodayCard's LayoutBuilder and blanks the page).
-              SizedBox(
-                height: 176,
-                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Expanded(child: _masthead()),
-                  const SizedBox(width: 14),
-                  const SizedBox(width: 470, child: TodayCard()),
-                ]),
-              ),
-              const SizedBox(height: 16),
+              if (!store.headerCollapsed) ...[
+                SizedBox(
+                  height: 176,
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    Expanded(child: _masthead()),
+                    const SizedBox(width: 14),
+                    const SizedBox(width: 470, child: TodayCard()),
+                  ]),
+                ),
+                const SizedBox(height: 8),
+              ],
+              Align(alignment: Alignment.centerRight, child: _headerCollapseBar()),
+              const SizedBox(height: 12),
               Expanded(child: _board()),
             ]),
           ),
