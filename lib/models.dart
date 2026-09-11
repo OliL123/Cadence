@@ -117,11 +117,11 @@ class Group {
 
 List<Group> defaultGroups() => C.chronicle
     ? [
-        Group(key: 'uni', name: 'Studies', zh: 'studia', color: C.navy.toARGB32()),
-        Group(key: 'side', name: 'Work', zh: 'opera', color: C.red.toARGB32()),
-        Group(key: 'home', name: 'Home', zh: 'domus', color: C.mustard.toARGB32()),
-        Group(key: 'health', name: 'Health', zh: 'salus', color: C.green.toARGB32()),
-        Group(key: 'errand', name: 'Errands', zh: 'negotia', color: C.teal.toARGB32()),
+        Group(key: 'uni', name: 'Studies', zh: '', color: C.navy.toARGB32()),
+        Group(key: 'side', name: 'Work', zh: '', color: C.red.toARGB32()),
+        Group(key: 'home', name: 'Home', zh: '', color: C.mustard.toARGB32()),
+        Group(key: 'health', name: 'Health', zh: '', color: C.green.toARGB32()),
+        Group(key: 'errand', name: 'Errands', zh: '', color: C.teal.toARGB32()),
       ]
     : [
         Group(key: 'uni', name: 'Uni', zh: '學業', color: C.navy.toARGB32()),

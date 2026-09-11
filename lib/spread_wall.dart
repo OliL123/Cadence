@@ -76,56 +76,74 @@ class SpreadWall extends StatelessWidget {
       );
 
   Widget _deck(List<Task> ws) => ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
         itemCount: ws.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (context, i) => _card(ws[i]),
+        separatorBuilder: (_, __) => const SizedBox(height: 11),
+        itemBuilder: (context, i) => _row(ws[i]),
       );
 
-  Widget _card(Task t) {
+  // One focus task = a card strip: the tarot card + its title, tick to finish.
+  Widget _row(Task t) {
     final g = store.groupOf(t.group);
-    return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: [Color(0xFFFBF6EA), Color(0xFFEFE6CF)]),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: const Color(0xFFD9CFB1)),
+        boxShadow: const [BoxShadow(color: Color(0x66051022), blurRadius: 9, offset: Offset(0, 5))],
+      ),
+      padding: const EdgeInsets.fromLTRB(9, 8, 8, 8),
+      child: Row(children: [
         Container(
           decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFFF4EEDE), width: 3),
-            borderRadius: BorderRadius.circular(5),
-            boxShadow: const [BoxShadow(color: Color(0xAA061226), blurRadius: 14, offset: Offset(0, 8))],
+            border: Border.all(color: const Color(0xFF2A2418), width: 1.4),
+            borderRadius: BorderRadius.circular(3),
           ),
           clipBehavior: Clip.antiAlias,
-          child: Image.asset(Chron.arcana(t.id), width: 104, height: 179, fit: BoxFit.cover),
+          child: Image.asset(Chron.arcana(t.id), width: 46, height: 80, fit: BoxFit.cover),
         ),
-        const SizedBox(height: 7),
-        SizedBox(
-          width: 116,
-          child: Text(t.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.ebGaramond(
-                  fontSize: 12.5, fontWeight: FontWeight.w600, color: const Color(0xFFF3ECD6), height: 1.2)),
-        ),
-        const SizedBox(height: 4),
-        Row(mainAxisSize: MainAxisSize.min, children: [
-          GestureDetector(
-            onTap: () => store.toggleDone(t),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0x88F0E4C4)),
-                borderRadius: BorderRadius.circular(20),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(t.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.ebGaramond(
+                    fontSize: 14.5, fontWeight: FontWeight.w700, color: const Color(0xFF2A2418), height: 1.2)),
+            const SizedBox(height: 5),
+            Row(children: [
+              Container(width: 8, height: 8, decoration: BoxDecoration(color: g.c, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(g.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.ebGaramond(fontSize: 11.5, color: const Color(0xFF7C7358))),
               ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.check, size: 13, color: Color(0xFFECDCB6)),
-                const SizedBox(width: 4),
-                Text('done', style: GoogleFonts.ebGaramond(fontSize: 11, color: const Color(0xFFECDCB6))),
-              ]),
+              if (store.dueLabel(t) != null) ...[
+                const SizedBox(width: 8),
+                Text('◷ ${store.dueLabel(t)}',
+                    style: GoogleFonts.ebGaramond(
+                        fontSize: 11, color: store.soon(t) ? const Color(0xFFB1382C) : const Color(0xFF9A8F74))),
+              ],
+            ]),
+          ]),
+        ),
+        const SizedBox(width: 6),
+        GestureDetector(
+          onTap: () => store.toggleDone(t),
+          child: Container(
+            width: 34, height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFF5F6A3A), width: 1.6),
             ),
+            child: const Icon(Icons.check, size: 18, color: Color(0xFF5F6A3A)),
           ),
-          const SizedBox(width: 6),
-          Container(width: 7, height: 7, decoration: BoxDecoration(color: g.c, shape: BoxShape.circle)),
-        ]),
+        ),
       ]),
     );
   }
