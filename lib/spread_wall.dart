@@ -82,69 +82,87 @@ class SpreadWall extends StatelessWidget {
         itemBuilder: (context, i) => _row(ws[i]),
       );
 
-  // One focus task = a card strip: the tarot card + its title, tick to finish.
+  // One focus task = a drawn card: the tarot card, its arcana name, the task.
   Widget _row(Task t) {
     final g = store.groupOf(t.group);
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-            begin: Alignment.topCenter, end: Alignment.bottomCenter,
-            colors: [Color(0xFFFBF6EA), Color(0xFFEFE6CF)]),
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: const Color(0xFFD9CFB1)),
-        boxShadow: const [BoxShadow(color: Color(0x66051022), blurRadius: 9, offset: Offset(0, 5))],
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: [Color(0xFFFCF8EE), Color(0xFFEDE3CB)]),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: const Color(0xFFC7A24A), width: 1.2),
+        boxShadow: const [BoxShadow(color: Color(0x88061020), blurRadius: 13, offset: Offset(0, 7))],
       ),
-      padding: const EdgeInsets.fromLTRB(9, 8, 8, 8),
-      child: Row(children: [
-        Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFF2A2418), width: 1.4),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Image.asset(Chron.arcana(t.id), width: 46, height: 80, fit: BoxFit.cover),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text(t.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.ebGaramond(
-                    fontSize: 14.5, fontWeight: FontWeight.w700, color: const Color(0xFF2A2418), height: 1.2)),
-            const SizedBox(height: 5),
-            Row(children: [
-              Container(width: 8, height: 8, decoration: BoxDecoration(color: g.c, borderRadius: BorderRadius.circular(2))),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(g.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.ebGaramond(fontSize: 11.5, color: const Color(0xFF7C7358))),
-              ),
-              if (store.dueLabel(t) != null) ...[
+      child: IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Container(width: 5, color: g.c), // group accent
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 9, 9, 9),
+              child: Row(children: [
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: const Color(0xFF8A6A1E), width: 1.4),
+                    boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 4, offset: Offset(0, 2))],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.asset(Chron.arcana(t.id), width: 60, height: 103, fit: BoxFit.cover),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text('${Chron.arcanaNumeral(t.id)} · ${Chron.arcanaName(t.id)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.cinzel(
+                            fontSize: 10.5, fontWeight: FontWeight.w600, letterSpacing: .5, color: const Color(0xFF8A6A1E))),
+                    const SizedBox(height: 5),
+                    Text(t.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.ebGaramond(
+                            fontSize: 15, fontWeight: FontWeight.w700, color: const Color(0xFF2A2418), height: 1.2)),
+                    const SizedBox(height: 6),
+                    Row(children: [
+                      Container(width: 8, height: 8, decoration: BoxDecoration(color: g.c, borderRadius: BorderRadius.circular(2))),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(g.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.ebGaramond(fontSize: 11.5, color: const Color(0xFF7C7358))),
+                      ),
+                      if (store.dueLabel(t) != null) ...[
+                        const SizedBox(width: 8),
+                        Text('◷ ${store.dueLabel(t)}',
+                            style: GoogleFonts.ebGaramond(
+                                fontSize: 11, color: store.soon(t) ? const Color(0xFFB1382C) : const Color(0xFF9A8F74))),
+                      ],
+                    ]),
+                  ]),
+                ),
                 const SizedBox(width: 8),
-                Text('◷ ${store.dueLabel(t)}',
-                    style: GoogleFonts.ebGaramond(
-                        fontSize: 11, color: store.soon(t) ? const Color(0xFFB1382C) : const Color(0xFF9A8F74))),
-              ],
-            ]),
-          ]),
-        ),
-        const SizedBox(width: 6),
-        GestureDetector(
-          onTap: () => store.toggleDone(t),
-          child: Container(
-            width: 34, height: 34,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF5F6A3A), width: 1.6),
+                GestureDetector(
+                  onTap: () => store.toggleDone(t),
+                  child: Container(
+                    width: 34, height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0x145F6A3A),
+                      border: Border.all(color: const Color(0xFF5F6A3A), width: 1.6),
+                    ),
+                    child: const Icon(Icons.check, size: 18, color: Color(0xFF5F6A3A)),
+                  ),
+                ),
+              ]),
             ),
-            child: const Icon(Icons.check, size: 18, color: Color(0xFF5F6A3A)),
           ),
-        ),
-      ]),
+        ]),
+      ),
     );
   }
 }

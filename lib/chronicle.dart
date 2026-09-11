@@ -21,6 +21,19 @@ class Chron {
   static String arcana(int id) =>
       '${_a}arcana/${(id % 22).toString().padLeft(2, '0')}.jpg';
 
+  static const _arcanaNames = [
+    'The Fool', 'The Magician', 'The High Priestess', 'The Empress', 'The Emperor',
+    'The Hierophant', 'The Lovers', 'The Chariot', 'Strength', 'The Hermit',
+    'Wheel of Fortune', 'Justice', 'The Hanged Man', 'Death', 'Temperance',
+    'The Devil', 'The Tower', 'The Star', 'The Moon', 'The Sun', 'Judgement', 'The World',
+  ];
+  static const _numerals = [
+    '0', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X',
+    'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX', 'XXI',
+  ];
+  static String arcanaName(int id) => _arcanaNames[id % 22];
+  static String arcanaNumeral(int id) => _numerals[id % 22];
+
   /// The time-of-day slot (0..4) for a given hour — dawn/day/twilight/sunset/night.
   static int slotForHour(int h) {
     if (h >= 5 && h < 8) return 0; // dawn
