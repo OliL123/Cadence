@@ -390,10 +390,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         height: 40,
         padding: const EdgeInsets.only(left: 12, right: 12, top: 2),
         child: ListView(scrollDirection: Axis.horizontal, children: [
-          _groupChip('all', C.chronicle ? 'All · omnia' : 'All 全部', C.greenD,
+          _groupChip('all', C.chronicle ? 'All' : 'All 全部', C.greenD,
               store.tasks.where((t) => !t.done && !t.daily).length),
           for (final g in store.groups)
-            _groupChip(g.key, '${g.name} ${g.zh}', g.c,
+            _groupChip(g.key, C.chronicle ? g.name : '${g.name} ${g.zh}', g.c,
                 store.tasksIn(g.key).where((t) => !t.done && !t.daily).length),
         ]),
       );
@@ -495,10 +495,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           const SizedBox(height: 12),
           Expanded(
             child: ListView(children: [
-              _railItem('all', 'All', C.chronicle ? 'omnia' : '全部', C.greenD,
+              _railItem('all', 'All', C.chronicle ? '' : '全部', C.greenD,
                   store.tasks.where((t) => !t.done && !t.daily).length),
               for (final g in store.groups)
-                _railItem(g.key, g.name, g.zh, g.c,
+                _railItem(g.key, g.name, C.chronicle ? '' : g.zh, g.c,
                     store.tasksIn(g.key).where((t) => !t.done && !t.daily).length,
                     group: g),
               const SizedBox(height: 4),
@@ -647,7 +647,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               const TextSpan(text: '✓ '),
               TextSpan(text: 'finishes', style: TextStyle(color: C.greenD)),
               const TextSpan(text: '  ·  tap a title to rename  ·  '),
-              TextSpan(text: '★', style: TextStyle(color: C.mustard)),
+              TextSpan(
+                  text: C.chronicle ? 'an olive sprig' : '★',
+                  style: TextStyle(
+                      color: C.chronicle ? C.olive : C.mustard,
+                      fontStyle: C.chronicle ? FontStyle.italic : FontStyle.normal)),
               TextSpan(text: C.chronicle ? ' draws it into ' : ' draws it into the '),
               TextSpan(
                   text: L.focusName,
@@ -1063,7 +1067,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     style: disp(size: 14, w: FontWeight.w700, color: C.creamTxt)
                         .copyWith(letterSpacing: .4)),
               ),
-              if (g.zh.isNotEmpty) ...[
+              if (g.zh.isNotEmpty && !C.chronicle) ...[
                 const SizedBox(width: 8),
                 Text(g.zh,
                     style: serifHk(size: 14, color: C.creamTxt).copyWith(height: 1.1)),

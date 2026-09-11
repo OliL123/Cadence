@@ -15,23 +15,23 @@ class L {
 
   // tasks panel
   static const tasks = _c ? 'THE LEDGER' : 'TASKS';
-  static const tasksZh = _c ? 'entrata' : '待辦';
+  static const tasksZh = _c ? '' : '待辦';
   static const focusName = _c ? 'The Spread' : '麻雀'; // referenced in the caption
   static const dueSoon = _c ? 'DUE SOON' : 'DUE SOON';
-  static const dueSoonZh = _c ? 'imminentia' : '就到期';
+  static const dueSoonZh = _c ? '' : '就到期';
 
   // groups / sections
   static const groups = _c ? 'GROUPS' : 'GROUPS';
-  static const groupsZh = _c ? 'ordines' : '分類';
+  static const groupsZh = _c ? '' : '分類';
   static const done = _c ? 'Done' : 'Done';
-  static const doneZh = _c ? 'peracta' : '完成';
+  static const doneZh = _c ? '' : '完成';
   static const daily = _c ? 'DAILY' : 'DAILY';
-  static const dailyZh = _c ? 'cotidie' : '每日';
+  static const dailyZh = _c ? '' : '每日';
 
   // controls
   static const add = _c ? 'Add' : '新增';
   static const sync = _c ? 'SYNC' : 'SYNC';
-  static const syncZh = _c ? 'nexus' : '雲端同步';
+  static const syncZh = _c ? '' : '雲端同步';
   static const pri = _c ? 'NB' : '急'; // priority badge glyph
 
   // mobile bottom nav (zh slot + en)
