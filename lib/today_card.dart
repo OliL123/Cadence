@@ -8,7 +8,7 @@ import 'calendar/gcal.dart';
 import 'hoverable.dart';
 
 TextStyle _serif(double s, Color c) => C.chronicle
-    ? GoogleFonts.playfairDisplay(fontWeight: FontWeight.w700, fontSize: s, color: c)
+    ? GoogleFonts.cinzel(fontWeight: FontWeight.w600, fontSize: s, color: c)
     : GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: s, color: c);
 TextStyle _sans(double s, Color c, [FontWeight w = FontWeight.w700]) => C.chronicle
     ? GoogleFonts.ebGaramond(fontSize: s, color: c, fontWeight: w)
@@ -170,15 +170,15 @@ class _TodayCardState extends State<TodayCard> {
               C.chronicle
                   ? '${now.day} ${_monthEn(now.month)} ${now.year}'
                   : '${now.year}年${now.month}月${now.day}日',
-              style: _serif(C.chronicle ? 16 : 18, C.red)),
-          const SizedBox(height: 3),
+              style: _serif(C.chronicle ? 15 : 18, C.red)),
+          SizedBox(height: C.chronicle ? 2 : 3),
           Text(
               C.chronicle
                   ? 'Anno ${_roman(now.year)}'
                   : '${_ganzhi(now.year)} · ${_zodiac(now.year)}',
               style: _sans(11.5, C.ink2).copyWith(
                   fontStyle: C.chronicle ? FontStyle.italic : FontStyle.normal)),
-          const SizedBox(height: 10),
+          SizedBox(height: C.chronicle ? 5 : 10),
           RichText(
             textAlign: center ? TextAlign.center : TextAlign.start,
             text: TextSpan(children: [

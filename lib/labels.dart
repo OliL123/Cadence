@@ -11,7 +11,7 @@ class L {
   // masthead
   static const appName = _c ? 'CHRONICLE' : 'CADENCE';
   static const appZh = _c ? '' : '節奏';
-  static const madeFor = _c ? 'PRO · ME — ANNO MMXXVI' : '香港製造 · MADE FOR ME';
+  static const madeFor = _c ? 'ANNO MMXXVI' : '香港製造 · MADE FOR ME';
 
   // tasks panel
   static const tasks = _c ? 'THE LEDGER' : 'TASKS';

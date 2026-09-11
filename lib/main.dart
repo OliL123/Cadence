@@ -12,6 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'today_card.dart';
 import 'mahjong_page.dart';
 import 'spread_wall.dart';
+import 'chronicle.dart';
 import 'home_widget_bridge.dart';
 import 'supabase_config.dart';
 import 'sync.dart';
@@ -101,11 +102,11 @@ class _MenuRow extends StatelessWidget {
 //  Cadence: Noto Serif HK (accent) / Oswald (display) / Space Mono (labels).
 //  Chronicle: Playfair Display (accent + display) / EB Garamond (labels).
 TextStyle serifHk({double size = 14, Color color = C.ink}) => C.chronicle
-    ? GoogleFonts.playfairDisplay(fontWeight: FontWeight.w700, fontSize: size, color: color)
+    ? GoogleFonts.cinzel(fontWeight: FontWeight.w600, fontSize: size, color: color)
     : GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: size, color: color);
 TextStyle disp({double size = 14, FontWeight w = FontWeight.w600, Color color = C.ink}) =>
     C.chronicle
-        ? GoogleFonts.playfairDisplay(fontSize: size, fontWeight: w, color: color)
+        ? GoogleFonts.cinzel(fontSize: size, fontWeight: w, color: color)
         : GoogleFonts.oswald(fontSize: size, fontWeight: w, color: color);
 TextStyle mono({double size = 11, Color color = C.ink3, FontWeight w = FontWeight.w400}) =>
     C.chronicle
@@ -244,23 +245,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.of(context).size.width >= 1040;
-    return Scaffold(
-      body: SafeArea(
-        bottom: wide, // on mobile the bottom nav handles the inset
-        child: ListenableBuilder(
-          listenable: store,
-          builder: (context, _) {
-            if (!store.groups.any((g) => g.key == _addGroup)) {
-              _addGroup = store.groups.first.key;
-            }
-            if (wide) return _wideLayout();
-            // Mobile: tasks and the mahjong wall are separate bottom-nav pages.
-            return _mobileView == 'focus'
-                ? _focusPage()
-                : _stackedLayout(MediaQuery.of(context).size.width);
-          },
-        ),
+    final content = SafeArea(
+      bottom: wide, // on mobile the bottom nav handles the inset
+      child: ListenableBuilder(
+        listenable: store,
+        builder: (context, _) {
+          if (!store.groups.any((g) => g.key == _addGroup)) {
+            _addGroup = store.groups.first.key;
+          }
+          if (wide) return _wideLayout();
+          // Mobile: tasks and the mahjong wall are separate bottom-nav pages.
+          return _mobileView == 'focus'
+              ? _focusPage()
+              : _stackedLayout(MediaQuery.of(context).size.width);
+        },
       ),
+    );
+    return Scaffold(
+      backgroundColor: C.chronicle ? Colors.transparent : null,
+      // Chronicle: a continuously-fading marble ground with contour temple
+      // columns framing the page edges, behind the content.
+      body: C.chronicle
+          ? ChronGround(
+              child: Stack(children: [Positioned.fill(child: content), const ChronColumns()]),
+            )
+          : content,
       bottomNavigationBar: wide ? null : _mobileNav(),
     );
   }
@@ -271,10 +280,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _stackedLayout(double w) {
     final compact = w < 560; // phone
     final pad = compact ? 10.0 : 16.0;
+    // Chronicle: transparent so the marble ground shows, and extra side padding
+    // so the content clears the edge columns.
+    final side = C.chronicle ? 52.0 : pad;
     return Container(
-      color: C.paper2,
+      color: C.chronicle ? Colors.transparent : C.paper2,
       child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(pad, pad, pad, 24),
+        padding: EdgeInsets.fromLTRB(side, pad, side, 24),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _masthead(),
           const SizedBox(height: 12),
@@ -316,8 +328,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Full-screen mahjong Focus wall — its own page on mobile (a bottom-nav tab).
   Widget _focusPage() => Container(
-        color: C.paper2,
-        padding: const EdgeInsets.all(10),
+        color: C.chronicle ? Colors.transparent : C.paper2,
+        padding: EdgeInsets.fromLTRB(C.chronicle ? 52 : 10, 10, C.chronicle ? 52 : 10, 10),
         child: _enamel(
           edge: C.green,
           padding: EdgeInsets.zero,
@@ -610,7 +622,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             if (c.maxWidth < 520) {
               // stack: title, then the buttons (wrapping if very narrow)
               return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                title,
+                FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: title),
                 const SizedBox(height: 8),
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   _doneToggleBtn(),
@@ -1228,7 +1240,75 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // ---------------- masthead ----------------
-  Widget _masthead() => _enamel(
+  Widget _masthead() => C.chronicle ? _chronicleMasthead() : _cadenceMasthead();
+
+  // The Greek masthead: a painting chosen by the time of day, the CHRONICLE
+  // wordmark, and the same made-for / APK / Sync controls over a dark veil.
+  Widget _chronicleMasthead() {
+    final now = DateTime.now();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(9),
+      child: SizedBox(
+        height: 180,
+        child: Stack(fit: StackFit.expand, children: [
+          Image.asset(Chron.mastAssets[Chron.slotNow()],
+              fit: BoxFit.cover, alignment: const Alignment(0, -0.1)),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0x33102A49), Color(0x00102A49), Color(0x22102A49), Color(0xE00D2340)],
+                stops: [0, .34, .6, 1],
+              ),
+            ),
+          ),
+          Positioned(
+            top: 11, left: 12, right: 12,
+            child: Row(children: [
+              Flexible(child: _chronChip(L.madeFor)),
+              const Spacer(),
+              if (apk.canDownloadApk) _apkButton(),
+              const SizedBox(width: 8),
+              _syncButton(),
+            ]),
+          ),
+          Positioned(
+            left: 16, right: 16, bottom: 11,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(L.appName,
+                    style: disp(size: 40, w: FontWeight.w700, color: const Color(0xFFF6F0DF)).copyWith(
+                        letterSpacing: 4,
+                        shadows: const [Shadow(color: Color(0xAA0B1E38), offset: Offset(0, 2), blurRadius: 10)])),
+              ),
+              Text(_chronDate(now),
+                  style: mono(size: 11.5, color: const Color(0xCCEEF2F6)).copyWith(fontStyle: FontStyle.italic)),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _chronChip(String s) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xAA0E2340),
+          border: Border.all(color: const Color(0x88E9E0C6)),
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: Text(s,
+            style: mono(size: 9, color: const Color(0xFFF4EEDA), w: FontWeight.w600).copyWith(letterSpacing: 1.2)),
+      );
+
+  static const _wdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  static const _mons = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  String _chronDate(DateTime d) => '${_wdays[d.weekday - 1]}, ${d.day} ${_mons[d.month - 1]}';
+
+  Widget _cadenceMasthead() => _enamel(
         edge: C.red,
         padding: EdgeInsets.zero,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -1595,9 +1675,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   borderRadius: BorderRadius.circular(6),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    child: Icon(t.star ? Icons.star : Icons.star_border,
-                        size: 21, color: t.star ? C.mustard : C.line),
+                    child: C.chronicle
+                        ? OliveSprig(lit: t.star)
+                        : Icon(t.star ? Icons.star : Icons.star_border,
+                            size: 21, color: t.star ? C.mustard : C.line),
                   ),
+                )
+              else if (C.chronicle)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: WaxSeal(),
                 ),
               _menu(t),
             ]),

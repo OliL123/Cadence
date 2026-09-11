@@ -10,8 +10,8 @@ set -e
 cd "$(dirname "$0")/.."
 export PATH="$PATH:/c/src/flutter/bin"
 
-REPO_DIR="${1:-../chronicle}"
-BASE_HREF="/chronicle/"      # GitHub Pages serves the repo at /<repo>/
+REPO_DIR="${1:-../Chronicle}"
+BASE_HREF="/Chronicle/"      # GitHub Pages serves the repo at /<repo>/
 ICONS="tool/chronicle_icons"
 BUILD="$(date +%Y%m%d%H%M%S)"
 echo "Chronicle build id: $BUILD  →  repo: $REPO_DIR"
