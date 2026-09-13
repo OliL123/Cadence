@@ -32,8 +32,10 @@ sed -i 's#<link rel="apple-touch-icon" href="[^"]*">#<link rel="apple-touch-icon
 # manifest: name / colours
 sed -i 's#"name": *"[^"]*"#"name": "Chronicle"#' "$W/manifest.json"
 sed -i 's#"short_name": *"[^"]*"#"short_name": "Chronicle"#' "$W/manifest.json"
-sed -i 's|"background_color": *"[^"]*"|"background_color": "#E7DFC9"|' "$W/manifest.json"
-sed -i 's|"theme_color": *"[^"]*"|"theme_color": "#9E2420"|' "$W/manifest.json"
+sed -i 's|"background_color": *"[^"]*"|"background_color": "#ECE5D4"|' "$W/manifest.json"
+sed -i 's|"theme_color": *"[^"]*"|"theme_color": "#173A63"|' "$W/manifest.json"
+# match the browser/status-bar tint meta in index.html to the Greek palette
+sed -i 's|<meta name="theme-color" content="[^"]*">|<meta name="theme-color" content="#173A63">|' "$W/index.html"
 sed -i 's#"description": *"[^"]*"#"description": "Chronicle — a personal chronicle of tasks."#' "$W/manifest.json"
 
 # --- Chronicle icons ---------------------------------------------------------
