@@ -36,6 +36,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   static const _kConnected = 'gcal_connected';
   static const _kToken = 'gcal_token';
   static const _kTokenExp = 'gcal_token_exp'; // ms-since-epoch expiry
+  static const _kAutoPaused = 'gcal_auto_paused'; // background refresh gave up here
 
   GCalStage stage = GCalStage.idle;
   String? message;
@@ -50,6 +51,11 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _refreshTimer;
   bool _refreshing = false;
   bool _observerWired = false;
+  // Once a *silent* refresh can't complete without a popup (common on iOS
+  // Safari / PWAs, where third-party-cookie rules block background grants), we
+  // stop all automatic attempts so the user isn't nagged to reconnect over and
+  // over. Cleared only by a manual, interactive reconnect.
+  bool _autoPaused = false;
 
   bool get _tokenValid =>
       _token != null &&
@@ -59,6 +65,9 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   bool get supported => auth.gcalAuthSupported;
   bool get isConnected => stage == GCalStage.connected;
   bool get isBusy => stage == GCalStage.connecting;
+  /// Previously linked, but a silent refresh gave up — the user can tap to
+  /// reconnect (no automatic popups happen in this state).
+  bool get needsReconnect => _wantConnected && _autoPaused && !isConnected;
   List<String> get selectedIds => store.gcalCalendars;
 
   /// Load saved prefs. Reuse a still-valid cached token (so a refresh doesn't
@@ -71,6 +80,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     }
     final p = await SharedPreferences.getInstance();
     _wantConnected = p.getBool(_kConnected) ?? false;
+    _autoPaused = p.getBool(_kAutoPaused) ?? false;
     final savedTok = p.getString(_kToken);
     final savedExp = p.getInt(_kTokenExp);
     if (savedTok != null && savedExp != null) {
@@ -81,6 +91,11 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     if (_tokenValid) {
       // Cached token is still good — go straight to connected, no popup.
       unawaited(_afterAuth());
+    } else if (_autoPaused) {
+      // Silent refresh has failed on this device before; don't auto-prompt on
+      // every launch. Stay idle — the TODAY card shows a Reconnect button the
+      // user can tap when they actually want to.
+      return;
     } else {
       unawaited(_reconnect());
     }
@@ -89,6 +104,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _save() async {
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kConnected, _wantConnected);
+    await p.setBool(_kAutoPaused, _autoPaused);
     if (_token != null && _tokenExp != null) {
       await p.setString(_kToken, _token!);
       await p.setInt(_kTokenExp, _tokenExp!.millisecondsSinceEpoch);
@@ -108,7 +124,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   /// calendar stays live without the user ever seeing a popup or blank list.
   void _scheduleRefresh() {
     _refreshTimer?.cancel();
-    if (_tokenExp == null) return;
+    if (_tokenExp == null || _autoPaused) return;
     final lead = _tokenExp!
         .subtract(const Duration(minutes: 2))
         .difference(DateTime.now());
@@ -120,11 +136,19 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   /// Best-effort silent token refresh. Returns true if a fresh token was
   /// obtained. Used both by the pre-expiry timer and by 401 recovery.
   Future<bool> _silentRefresh() async {
-    if (_refreshing) return false;
+    if (_refreshing || _autoPaused) return false;
     _refreshing = true;
     try {
       final t = await auth.getCalendarToken(interactive: false);
-      if (t == null) return false;
+      if (t == null) {
+        // Couldn't refresh without user interaction — stop auto-retrying so we
+        // don't keep popping the Google prompt. The user reconnects manually.
+        _autoPaused = true;
+        _refreshTimer?.cancel();
+        await _save();
+        return false;
+      }
+      _autoPaused = false;
       _storeToken(t);
       await _save();
       return true;
@@ -155,6 +179,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return;
     }
+    _autoPaused = false; // a fresh manual grant re-enables background refresh
     _storeToken(t);
     _wantConnected = true;
     await _save();
@@ -179,6 +204,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> disconnect() async {
     _refreshTimer?.cancel();
+    _autoPaused = false;
     _token = null;
     _tokenExp = null;
     _wantConnected = false;

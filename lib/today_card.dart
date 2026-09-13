@@ -369,7 +369,12 @@ class _TodayCardState extends State<TodayCard> {
                   height: 13,
                   child: CircularProgressIndicator(strokeWidth: 2, color: C.navy))
               : const Icon(Icons.link, size: 14),
-          label: Text(g.isBusy ? 'Connecting…' : 'Connect Google', style: _sans(11, C.navy)),
+          label: Text(g.isBusy
+                  ? 'Connecting…'
+                  : g.needsReconnect
+                      ? 'Reconnect Google'
+                      : 'Connect Google',
+              style: _sans(11, C.navy)),
           style: OutlinedButton.styleFrom(
             foregroundColor: C.navy,
             side: const BorderSide(color: C.navy, width: 1.3),
