@@ -2125,7 +2125,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             style: TextButton.styleFrom(foregroundColor: C.red),
           ),
         ),
-        child: child!,
+        // Force 24-hour entry: the app stores/shows time as 24h "HH:mm", and
+        // when the browser locale reports 12-hour the time field rejects hours
+        // like 18 as out of range (1–12). 24h accepts 0–23, matching storage.
+        child: MediaQuery(
+          data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
+          child: child!,
+        ),
       );
 
   /// On phones/folds the clock dial gets squished, so use keypad entry there.
