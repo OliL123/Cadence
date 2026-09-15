@@ -592,6 +592,13 @@ class CadenceStore extends ChangeNotifier {
     _touch(t);
   }
 
+  void renameSub(Task t, SubTask s, String title) {
+    final v = title.trim();
+    if (v.isEmpty || v == s.title) return;
+    s.title = v;
+    _touch(t);
+  }
+
   // ---------- groups ----------
   static const _newPalette = [0xFF7B3F3F, 0xFF556B2F, 0xFF35637A, 0xFF8A5A2B, 0xFF5E4B8E];
 
