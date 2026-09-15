@@ -35,8 +35,10 @@ class C {
   //   mustard — highlight (stars→olive sprig, add, streak)  → gold in Chronicle
   //   teal    — a distinct group default colour             → olive in Chronicle
   static const red = chronicle ? Color(0xFFB1382C) : Color(0xFFBE3A2B);
-  static const green = chronicle ? Color(0xFF173A63) : Color(0xFF1F6E4E);
-  static const greenD = chronicle ? Color(0xFF102A49) : Color(0xFF12503A);
+  // In Chronicle the "green" secondary accent is poppy red too (the friend
+  // prefers red over the Aegean blue). Cadence keeps its jade green.
+  static const green = chronicle ? Color(0xFFB1382C) : Color(0xFF1F6E4E);
+  static const greenD = chronicle ? Color(0xFF89271D) : Color(0xFF12503A);
   static const navy = chronicle ? Color(0xFF2F5C8C) : Color(0xFF2C4C7C);
   static const mustard = chronicle ? Color(0xFFC2A24C) : Color(0xFFD2982E);
   static const teal = chronicle ? Color(0xFF5F6A3A) : Color(0xFF217A6E);
