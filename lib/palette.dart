@@ -48,6 +48,7 @@ class C {
   static const seaD = Color(0xFF102A49);
   static const seaL = Color(0xFF2F5C8C);
   static const poppy = Color(0xFFB1382C);
+  static const poppyD = Color(0xFF89271D); // deep brick (Chronicle daily header)
   static const olive = Color(0xFF5F6A3A);
   static const gold = Color(0xFFC2A24C);
   static const etch = Color(0xFF6B5A44); // sepia engraving line (columns)

@@ -306,7 +306,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _headerCollapseBar(),
           const SizedBox(height: 12),
           _enamel(
-            edge: C.green,
+            edge: C.chronicle ? C.red : C.green,
             padding: EdgeInsets.zero,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(5),
@@ -505,7 +505,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
   Widget _board() => _enamel(
-        edge: C.green,
+        edge: C.chronicle ? C.red : C.green,
         padding: EdgeInsets.zero,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(5),
@@ -612,10 +612,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       splashRadius: 16,
                       onSelected: (v) {
                         if (v == 'rename') _renameGroup(group);
+                        if (v == 'color') _pickGroupColor(group);
                         if (v == 'del') _confirmDeleteGroup(group);
                       },
                       itemBuilder: (_) => const [
                         PopupMenuItem(value: 'rename', child: _MenuRow(Icons.edit_outlined, 'Rename group')),
+                        PopupMenuItem(value: 'color', child: _MenuRow(Icons.palette_outlined, 'Change colour')),
                         PopupMenuItem(value: 'del', child: _MenuRow(Icons.delete_outline, 'Delete group', danger: true)),
                       ],
                     ),
@@ -1174,6 +1176,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             onSelected: (v) {
               if (v == 'add') _quickAdd(g);
               if (v == 'rename') _renameGroup(g);
+              if (v == 'color') _pickGroupColor(g);
               if (v == 'del') _confirmDeleteGroup(g);
             },
             itemBuilder: (_) => const [
@@ -1183,6 +1186,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               PopupMenuItem(
                   value: 'rename',
                   child: _MenuRow(Icons.edit_outlined, 'Rename group')),
+              PopupMenuItem(
+                  value: 'color',
+                  child: _MenuRow(Icons.palette_outlined, 'Change colour')),
               PopupMenuItem(
                   value: 'del',
                   child: _MenuRow(Icons.delete_outline, 'Delete group', danger: true)),
@@ -1292,6 +1298,61 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _renameGroup(Group g) async {
     final v = await _promptText('Rename group', g.name);
     if (v != null) store.renameGroup(g, v);
+  }
+
+  // A broad, muted swatch set spanning the hue wheel plus a few neutrals —
+  // enough range to recolour any group without a heavy colour-wheel widget.
+  static const _swatches = <int>[
+    0xFFBE3A2B, 0xFFB1382C, 0xFFC0392B, 0xFFD35400, 0xFF8A5A2B, 0xFFB9770E,
+    0xFFD2982E, 0xFFC2A24C, 0xFF9A8C2E, 0xFF6B8E23, 0xFF556B2F, 0xFF5F6A3A,
+    0xFF1F6E4E, 0xFF217A6E, 0xFF12503A, 0xFF2C4C7C, 0xFF35637A, 0xFF173A63,
+    0xFF2F5C8C, 0xFF5E4B8E, 0xFF7A5A86, 0xFF8E3A6B, 0xFF7B3F3F, 0xFF5B4636,
+  ];
+
+  Future<void> _pickGroupColor(Group g) async {
+    final chosen = await showDialog<int>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: C.paper2,
+        title: Text('Colour · ${g.name}',
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+        content: SizedBox(
+          width: 300,
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final c in _swatches)
+                GestureDetector(
+                  onTap: () => Navigator.pop(context, c),
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: Color(c),
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(
+                        color: g.color == c ? C.ink : Colors.black26,
+                        width: g.color == c ? 2.5 : 1,
+                      ),
+                    ),
+                    child: g.color == c
+                        ? const Icon(Icons.check, size: 18, color: Colors.white)
+                        : null,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              style: TextButton.styleFrom(foregroundColor: C.red),
+              child: const Text('Cancel')),
+        ],
+      ),
+    );
+    if (chosen != null) store.setGroupColor(g, chosen);
   }
 
   Future<void> _addGroupDialog() async {
@@ -1564,7 +1625,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          color: C.greenD,
+          color: C.chronicle ? C.poppyD : C.greenD,
           borderRadius: BorderRadius.circular(7),
           boxShadow: const [BoxShadow(color: Color(0x24462D0F), offset: Offset(2, 2))],
         ),
@@ -1606,8 +1667,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             width: 20,
             height: 20,
             decoration: BoxDecoration(
-              color: done ? C.greenD : C.paper,
-              border: Border.all(color: C.greenD, width: 2),
+              color: done ? (C.chronicle ? C.red : C.greenD) : C.paper,
+              border: Border.all(color: C.chronicle ? C.red : C.greenD, width: 2),
               borderRadius: BorderRadius.circular(6),
             ),
             child: done ? const Icon(Icons.check, size: 13, color: C.creamTxt) : null,
