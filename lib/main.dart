@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -128,6 +129,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int? _editingTaskId;
   int? _highlightId; // task briefly highlighted after a widget tap
   final _editCtl = TextEditingController();
+  Timer? _snackTimer; // force-dismisses the undo snackbar (see _snack)
   static const _widgetChannel = MethodChannel('cadence/widget');
 
   @override
@@ -180,6 +182,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       closeIconColor: C.creamTxt,
       action: SnackBarAction(label: 'UNDO', textColor: C.mustard, onPressed: onUndo),
     ));
+    // Force it to auto-dismiss even when Flutter would keep it up — e.g. the
+    // web/accessibility path disables SnackBar's own auto-dismiss timer.
+    _snackTimer?.cancel();
+    _snackTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    });
   }
 
   void _completeWithUndo(Task t) {
@@ -220,6 +228,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _snackTimer?.cancel();
     _addCtl.dispose();
     _boardCtl.dispose();
     _editCtl.dispose();
