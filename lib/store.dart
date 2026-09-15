@@ -621,6 +621,11 @@ class CadenceStore extends ChangeNotifier {
     _changed();
   }
 
+  void setGroupColor(Group g, int color) {
+    g.color = color;
+    _changed();
+  }
+
   // Offline English→Chinese dictionary for group names. (The real app can swap
   // this for on-device ML Kit translation; this keeps it working offline.)
   static const Map<String, String> _zhDict = {
