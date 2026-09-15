@@ -1239,15 +1239,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     onPressed: date == null
                         ? null
                         : () async {
-                            final tt = await showTimePicker(
-                                context: ctx,
-                                initialTime: time ?? TimeOfDay.now(),
-                                initialEntryMode: _timeEntryMode(),
-                                builder: _themedPicker);
+                            final tt = await _promptTime(time ?? TimeOfDay.now());
                             if (tt != null) setLocal(() => time = tt);
                           },
                     icon: const Icon(Icons.schedule, size: 16),
-                    label: Text(time == null ? 'Time' : time!.format(ctx),
+                    label: Text(
+                        time == null
+                            ? 'Time'
+                            : '${time!.hour.toString().padLeft(2, '0')}:${time!.minute.toString().padLeft(2, '0')}',
                         style: const TextStyle(fontSize: 12)),
                     style: OutlinedButton.styleFrom(
                         foregroundColor: time == null ? C.ink3 : C.navy,
@@ -1865,53 +1864,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ],
       );
 
-  Widget _subs(Task t, Color color) => Container(
-        margin: const EdgeInsets.only(top: 10, left: 2),
-        padding: const EdgeInsets.only(top: 9),
-        decoration: const BoxDecoration(
-            border: Border(top: BorderSide(color: C.line, style: BorderStyle.solid))),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          for (final s in t.sub)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 7),
-              child: Row(children: [
-                GestureDetector(
-                  onTap: () => store.toggleSub(s),
-                  child: Container(
-                    width: 16,
-                    height: 16,
-                    decoration: BoxDecoration(
-                      color: s.done ? color : C.paper,
-                      border: Border.all(color: color, width: 1.5),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: s.done ? const Icon(Icons.check, size: 10, color: C.creamTxt) : null,
-                  ),
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(s.title,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: s.done ? C.ink3 : C.ink,
-                        decoration: s.done ? TextDecoration.lineThrough : null,
-                      )),
-                ),
-                GestureDetector(
-                  onTap: () => store.deleteSub(t, s),
-                  child: const Icon(Icons.close, size: 14, color: C.ink3),
-                ),
-              ]),
-            ),
-          TextButton.icon(
-            onPressed: () => _addSub(t),
-            style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 4), foregroundColor: C.greenD),
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text('subtask', style: TextStyle(fontSize: 12.5)),
-          ),
-        ]),
-      );
+  Widget _subs(Task t, Color color) => _SubtaskSection(task: t, color: color);
 
   // ---------------- chips ----------------
   Widget _chip(String label, Color color) => Container(
@@ -2134,12 +2087,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       );
 
-  /// On phones/folds the clock dial gets squished, so use keypad entry there.
-  TimePickerEntryMode _timeEntryMode() =>
-      MediaQuery.of(context).size.width < 1040
-          ? TimePickerEntryMode.inputOnly
-          : TimePickerEntryMode.input;
-
   /// "14:30" -> TimeOfDay, or null.
   TimeOfDay? _parseTime(String? hhmm) {
     if (hhmm == null) return null;
@@ -2165,16 +2112,81 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await _pickDue(t);
       if (t.dueISO == null) return; // cancelled — no date to anchor the time
     }
-    final tod = await showTimePicker(
-      context: context,
-      initialTime: _parseTime(t.dueTime) ?? const TimeOfDay(hour: 9, minute: 0),
-      initialEntryMode: _timeEntryMode(),
-      builder: _themedPicker,
-    );
+    final tod = await _promptTime(_parseTime(t.dueTime) ?? const TimeOfDay(hour: 9, minute: 0));
     if (tod != null) {
       store.setDueTime(t,
           '${tod.hour.toString().padLeft(2, '0')}:${tod.minute.toString().padLeft(2, '0')}');
     }
+  }
+
+  /// A simple, reliable 24-hour time entry: one field, its text pre-selected so
+  /// you can type straight over it (no deleting the default first). Accepts
+  /// "18:30", "1830", "8:5", "8.30". Returns null on cancel / empty / invalid.
+  Future<TimeOfDay?> _promptTime(TimeOfDay initial) {
+    final init = '${initial.hour.toString().padLeft(2, '0')}:${initial.minute.toString().padLeft(2, '0')}';
+    final ctl = TextEditingController(text: init);
+    ctl.selection = TextSelection(baseOffset: 0, extentOffset: init.length);
+    TimeOfDay? parse(String raw) {
+      final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+      if (digits.isEmpty || digits.length > 4) return null;
+      int h, m;
+      if (digits.length <= 2) {
+        h = int.parse(digits);
+        m = 0;
+      } else {
+        // last two digits are minutes, the rest are the hour
+        h = int.parse(digits.substring(0, digits.length - 2));
+        m = int.parse(digits.substring(digits.length - 2));
+      }
+      if (h > 23 || m > 59) return null;
+      return TimeOfDay(hour: h, minute: m);
+    }
+
+    return showDialog<TimeOfDay>(
+      context: context,
+      builder: (_) => Theme(
+        data: Theme.of(context).copyWith(
+          textSelectionTheme: const TextSelectionThemeData(selectionColor: Color(0x55C2A24C)),
+        ),
+        child: AlertDialog(
+          backgroundColor: C.paper2,
+          title: const Text('Set time', style: TextStyle(fontWeight: FontWeight.w700)),
+          content: TextField(
+            controller: ctl,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: false),
+            textInputAction: TextInputAction.done,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: C.ink),
+            textAlign: TextAlign.center,
+            onSubmitted: (v) => Navigator.pop(context, parse(v)),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'HH:mm  ·  e.g. 18:30',
+              hintStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: C.ink3),
+              filled: true,
+              fillColor: C.paper,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: C.mustard, width: 1.5)),
+              focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: C.mustard, width: 1.5)),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(foregroundColor: C.red),
+                child: const Text('Cancel')),
+            FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: C.green),
+                onPressed: () => Navigator.pop(context, parse(ctl.text)),
+                child: const Text('Set')),
+          ],
+        ),
+      ),
+    );
   }
 
   void _submitAdd() {
@@ -2186,11 +2198,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // ---------------- dialogs ----------------
-  Future<void> _addSub(Task t) async {
-    final v = await _promptText('New subtask', '');
-    if (v != null && v.trim().isNotEmpty) store.addSub(t, v);
-  }
-
   Future<void> _pickDue(Task t) async {
     final now = DateTime.now();
     final d = await showDatePicker(
@@ -2263,6 +2270,147 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
 /// Lets the board pan by mouse drag (not just touch/trackpad), so wide-screen
 /// mouse users can scroll the board horizontally.
+/// A task's subtasks: tap a title to edit it inline (like the task title), and
+/// a persistent add field at the bottom that adds on Enter and keeps focus so
+/// several can be entered in a row.
+class _SubtaskSection extends StatefulWidget {
+  final Task task;
+  final Color color;
+  const _SubtaskSection({required this.task, required this.color});
+  @override
+  State<_SubtaskSection> createState() => _SubtaskSectionState();
+}
+
+class _SubtaskSectionState extends State<_SubtaskSection> {
+  int? _editIndex;
+  final _editCtl = TextEditingController();
+  final _addCtl = TextEditingController();
+  final _addFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _editCtl.dispose();
+    _addCtl.dispose();
+    _addFocus.dispose();
+    super.dispose();
+  }
+
+  void _startEdit(int i, SubTask s) {
+    setState(() {
+      _editIndex = i;
+      _editCtl.text = s.title;
+      _editCtl.selection = TextSelection(baseOffset: 0, extentOffset: s.title.length);
+    });
+  }
+
+  void _commitEdit(SubTask s) {
+    if (_editIndex == null) return;
+    store.renameSub(widget.task, s, _editCtl.text);
+    setState(() => _editIndex = null);
+  }
+
+  void _add() {
+    final v = _addCtl.text.trim();
+    if (v.isEmpty) return;
+    store.addSub(widget.task, v);
+    _addCtl.clear();
+    _addFocus.requestFocus(); // keep focus so you can add several in a row
+  }
+
+  TextField _editField(SubTask s) => TextField(
+        controller: _editCtl,
+        autofocus: true,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _commitEdit(s),
+        onTapOutside: (_) => _commitEdit(s),
+        style: const TextStyle(fontSize: 13, color: C.ink),
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: C.paper,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(5),
+              borderSide: const BorderSide(color: C.mustard, width: 1.5)),
+          focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(5),
+              borderSide: const BorderSide(color: C.mustard, width: 1.5)),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.task;
+    final color = widget.color;
+    return Container(
+      margin: const EdgeInsets.only(top: 10, left: 2),
+      padding: const EdgeInsets.only(top: 9),
+      decoration: const BoxDecoration(border: Border(top: BorderSide(color: C.line))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        for (final (i, s) in t.sub.indexed)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 7),
+            child: Row(children: [
+              GestureDetector(
+                onTap: () => store.toggleSub(s),
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: s.done ? color : C.paper,
+                    border: Border.all(color: color, width: 1.5),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: s.done ? const Icon(Icons.check, size: 10, color: C.creamTxt) : null,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: _editIndex == i
+                    ? _editField(s)
+                    : GestureDetector(
+                        onTap: () => _startEdit(i, s),
+                        behavior: HitTestBehavior.opaque,
+                        child: Text(s.title,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: s.done ? C.ink3 : C.ink,
+                              decoration: s.done ? TextDecoration.lineThrough : null,
+                            )),
+                      ),
+              ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: () => store.deleteSub(t, s),
+                child: const Icon(Icons.close, size: 14, color: C.ink3),
+              ),
+            ]),
+          ),
+        Row(children: [
+          const Icon(Icons.add, size: 16, color: C.greenD),
+          const SizedBox(width: 7),
+          Expanded(
+            child: TextField(
+              controller: _addCtl,
+              focusNode: _addFocus,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _add(),
+              style: const TextStyle(fontSize: 13, color: C.ink),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: 'add subtask…',
+                hintStyle: TextStyle(fontSize: 13, color: C.ink3),
+                contentPadding: EdgeInsets.symmetric(vertical: 4),
+              ),
+            ),
+          ),
+        ]),
+      ]),
+    );
+  }
+}
+
 class _DragScrollBehavior extends MaterialScrollBehavior {
   const _DragScrollBehavior();
   @override
