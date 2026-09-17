@@ -55,7 +55,6 @@ class _FocusWallState extends State<FocusWall>
   String? _badgeEn;
   Color _badgeCol = _winCol;
   String _lastSig = '';
-  bool _soundOn = true;
   Timer? _hide;
 
   @override
@@ -234,7 +233,6 @@ class _FocusWallState extends State<FocusWall>
   Widget _header() => Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 10, 6),
         child: Row(children: [
-          const SizedBox(width: 34),
           Expanded(
             child: Center(
               child: Text('麻雀',
@@ -247,23 +245,7 @@ class _FocusWallState extends State<FocusWall>
                       ])),
             ),
           ),
-          _soundBtn(),
         ]),
-      );
-
-  Widget _soundBtn() => GestureDetector(
-        onTap: () => setState(() => _soundOn = !_soundOn),
-        child: Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: .22),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: C.creamTxt.withValues(alpha: .25)),
-          ),
-          child: Icon(_soundOn ? Icons.volume_up : Icons.volume_off,
-              size: 16, color: C.creamTxt),
-        ),
       );
 
   Widget _empty() => Center(
@@ -287,6 +269,13 @@ class _FocusWallState extends State<FocusWall>
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceMono(
                   color: C.creamTxt.withValues(alpha: .6), fontSize: 9.5)),
+          const SizedBox(height: 6),
+          // CC BY-SA 4.0 requires the tile artwork to be credited wherever it's
+          // shown, and these builds are published publicly.
+          Text('tiles by Cangjie6 · Wikimedia Commons · CC BY-SA 4.0',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.spaceMono(
+                  color: C.creamTxt.withValues(alpha: .35), fontSize: 8)),
         ]),
       );
 

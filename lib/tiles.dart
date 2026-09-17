@@ -26,8 +26,19 @@ class TileFace extends StatelessWidget {
   const TileFace(this.tile, {this.width = 34, this.height = 44, super.key});
 
   @override
-  Widget build(BuildContext context) =>
-      CustomPaint(size: Size(width, height), painter: _TileFacePainter(tile));
+  Widget build(BuildContext context) => SizedBox(
+        width: width,
+        height: height,
+        child: Image.asset(
+          'assets/tiles/${tile.suit}${tile.val}.png',
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.medium,
+          // Anything we have no art for still renders: fall back to the painted
+          // face rather than showing a broken-image box.
+          errorBuilder: (_, __, ___) => CustomPaint(
+              size: Size(width, height), painter: _TileFacePainter(tile)),
+        ),
+      );
 }
 
 class _TileFacePainter extends CustomPainter {
