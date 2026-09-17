@@ -1440,7 +1440,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ],
       ),
     );
-    if (ok == true) store.setGroupColor(g, picked.toARGB32());
+    // Force opaque: a group colour that arrived semi-transparent (via the hex
+    // field) would render the group's chips and headers invisible.
+    if (ok == true) store.setGroupColor(g, picked.withValues(alpha: 1).toARGB32());
   }
 
   Future<void> _addGroupDialog() async {

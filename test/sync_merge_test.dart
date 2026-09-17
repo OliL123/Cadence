@@ -108,4 +108,37 @@ void main() {
     expect(nextId, isNot(localId),
         reason: 'a new task must not reuse the id of a task we kept');
   });
+
+  test('a kept task never ends up orphaned in a missing group', () {
+    final s = CadenceStore();
+    // A group that only exists on this device, with a task in it.
+    s.applyState({
+      'groups': [
+        {'key': 'uni', 'name': 'Uni', 'zh': '', 'color': 0xFF2C4C7C},
+        {'key': 'local', 'name': 'Local only', 'zh': '', 'color': 0xFF556B2F},
+      ],
+      'tasks': [taskMap(1, u: 100)],
+      'uid': 1,
+      'updatedAt': 100,
+    });
+    s.addTask('In the local group', 'local');
+    final fresh = s.tasks.firstWhere((t) => t.title == 'In the local group');
+
+    // The cloud never saw that group: its snapshot predates our task, and its
+    // group list has no 'local'. The task is kept, but its group is gone.
+    s.applyRemoteState({
+      'groups': [
+        {'key': 'uni', 'name': 'Uni', 'zh': '', 'color': 0xFF2C4C7C},
+      ],
+      'tasks': [taskMap(1, u: 100)],
+      'uid': 1,
+      'updatedAt': fresh.uAt - 1,
+    });
+
+    final kept = s.tasks.where((t) => t.title == 'In the local group');
+    expect(kept, hasLength(1), reason: 'unpushed local work should survive');
+    expect(s.groups.any((g) => g.key == kept.first.group), isTrue,
+        reason: 'an orphaned task renders in no section, so it looks lost');
+    expect(s.tasksIn(kept.first.group), contains(kept.first));
+  });
 }
