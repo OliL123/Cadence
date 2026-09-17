@@ -109,6 +109,41 @@ void main() {
         reason: 'a new task must not reuse the id of a task we kept');
   });
 
+  test('view preferences are per-device and survive a cloud pull', () {
+    final s = CadenceStore();
+    s.applyState({
+      'tasks': [taskMap(1, u: 100)],
+      'uid': 1,
+      'updatedAt': 100,
+    });
+    s.setViewMode('board');
+    s.setShowDone(true);
+    s.setFilter('uni');
+    s.setHeaderCollapsed(true);
+    final clockBefore = s.updatedAt;
+
+    // Changing how you're *looking* at the list isn't an edit, so it must not
+    // make this device look like the newest writer.
+    expect(clockBefore, 100,
+        reason: 'view preferences must not bump the sync clock');
+
+    // A cloud blob carries no view preferences any more.
+    s.applyRemoteState({
+      'tasks': [taskMap(1, u: 200)],
+      'uid': 1,
+      'updatedAt': 500,
+    });
+
+    expect(s.viewMode, 'board');
+    expect(s.showDone, isTrue);
+    expect(s.filter, 'uni');
+    expect(s.headerCollapsed, isTrue);
+    expect(s.exportState().keys, isNot(contains('filter')),
+        reason: 'view preferences must not be uploaded');
+    expect(s.exportLocal().keys, contains('filter'),
+        reason: 'but they must still persist on this device');
+  });
+
   test('a kept task never ends up orphaned in a missing group', () {
     final s = CadenceStore();
     // A group that only exists on this device, with a task in it.

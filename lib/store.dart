@@ -87,8 +87,9 @@ class CadenceStore extends ChangeNotifier {
     if (tasks.length != before || migrated) save();
   }
 
-  /// The full app state as a JSON-serialisable map (used for local persistence
-  /// and for cross-device sync).
+  /// The shared app state — what travels between devices. Deliberately excludes
+  /// the view preferences below: which filter, layout or "show done" you're
+  /// using is a property of the device in your hand, not of your task list.
   Map<String, dynamic> exportState() => {
         'groups': groups.map((g) => g.toJson()).toList(),
         'tasks': tasks.map((t) => t.toJson()).toList(),
@@ -96,11 +97,6 @@ class CadenceStore extends ChangeNotifier {
         'deck': deck.map((t) => t.toJson()).toList(),
         'uid': _uid,
         'streak': streak,
-        'viewMode': viewMode,
-        'sortMode': sortMode,
-        'filter': filter,
-        'showDone': showDone,
-        'headerCollapsed': headerCollapsed,
         'updatedAt': updatedAt,
         'wxPlace': weatherPlace,
         'wxLat': weatherLat,
@@ -110,7 +106,20 @@ class CadenceStore extends ChangeNotifier {
         'gcalCalsAt': gcalCalsUpdatedAt,
       };
 
+  /// What we write to this device's own storage: the shared state plus the
+  /// per-device view preferences.
+  Map<String, dynamic> exportLocal() => {
+        ...exportState(),
+        'viewMode': viewMode,
+        'sortMode': sortMode,
+        'filter': filter,
+        'showDone': showDone,
+        'headerCollapsed': headerCollapsed,
+      };
+
   /// Replace the whole in-memory state from a map (from disk or from the cloud).
+  /// View preferences are only present in a local blob; when they're missing
+  /// (i.e. this came from the cloud) the device keeps its own.
   void applyState(Map<String, dynamic> j) {
     groups = ((j['groups'] ?? []) as List)
         .map((e) => Group.fromJson(e as Map<String, dynamic>))
@@ -121,11 +130,11 @@ class CadenceStore extends ChangeNotifier {
     wall = ((j['wall'] ?? []) as List).map((e) => e as int).toList();
     _uid = j['uid'] ?? 0;
     streak = j['streak'] ?? 0;
-    viewMode = j['viewMode'] ?? 'sections';
-    sortMode = j['sortMode'] ?? 'manual';
-    filter = j['filter'] ?? 'all';
-    showDone = j['showDone'] ?? false;
-    headerCollapsed = j['headerCollapsed'] ?? false;
+    viewMode = j['viewMode'] ?? viewMode;
+    sortMode = j['sortMode'] ?? sortMode;
+    filter = j['filter'] ?? filter;
+    showDone = j['showDone'] ?? showDone;
+    headerCollapsed = j['headerCollapsed'] ?? headerCollapsed;
     updatedAt = j['updatedAt'] ?? 0;
     weatherPlace = j['wxPlace'] ?? weatherPlace;
     weatherLat = (j['wxLat'] ?? weatherLat).toDouble();
@@ -210,7 +219,7 @@ class CadenceStore extends ChangeNotifier {
 
   Future<void> save() async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_key, jsonEncode(exportState()));
+    await p.setString(_key, jsonEncode(exportLocal()));
   }
 
   /// Notify listeners without persisting (used after an external reload).
@@ -226,6 +235,14 @@ class CadenceStore extends ChangeNotifier {
 
   void _changed() {
     updatedAt = DateTime.now().millisecondsSinceEpoch;
+    notifyListeners();
+    save();
+  }
+
+  /// A per-device view preference changed: repaint and persist locally, but
+  /// leave the sync clock alone. These aren't in [exportState], so the sync
+  /// layer sees no content change and won't write to the cloud either.
+  void _viewChanged() {
     notifyListeners();
     save();
   }
@@ -739,12 +756,12 @@ class CadenceStore extends ChangeNotifier {
   // ---------- view ----------
   void setViewMode(String m) {
     viewMode = m;
-    _changed();
+    _viewChanged();
   }
 
   void setSortMode(String m) {
     sortMode = m;
-    _changed();
+    _viewChanged();
   }
 
   /// Order a group's rows by the current sort mode. 'due' puts dated tasks
@@ -764,17 +781,17 @@ class CadenceStore extends ChangeNotifier {
 
   void setFilter(String f) {
     filter = f;
-    _changed();
+    _viewChanged();
   }
 
   void setShowDone(bool v) {
     showDone = v;
-    _changed();
+    _viewChanged();
   }
 
   void setHeaderCollapsed(bool v) {
     headerCollapsed = v;
-    _changed();
+    _viewChanged();
   }
 
   // ---------- due helpers ----------

@@ -49,6 +49,21 @@ class SyncService extends ChangeNotifier {
         if (mainDeviceName != null) 'mainDevName': mainDeviceName,
       };
 
+  /// View preferences used to live in the synced blob, so rows written by older
+  /// builds still carry them. Strip them on the way in: which filter or layout
+  /// a device is showing must never be dictated by another device.
+  static const _viewKeys = {
+    'viewMode',
+    'sortMode',
+    'filter',
+    'showDone',
+    'headerCollapsed',
+  };
+
+  Map<String, dynamic> _appState(Map<String, dynamic> data) =>
+      Map<String, dynamic>.from(data)
+        ..removeWhere((k, _) => _viewKeys.contains(k));
+
   void _readMeta(Map<String, dynamic> data) {
     lastDeviceId = data['lastDev'] as String?;
     lastDeviceName = data['lastDevName'] as String?;
@@ -153,7 +168,7 @@ class SyncService extends ChangeNotifier {
           lastDeviceId == mainDeviceId;
       if (remoteTs > store.updatedAt || tieGoesToCloud) {
         // Cloud is newer — take it (per-task merge may keep some local edits).
-        store.applyRemoteState(data);
+        store.applyRemoteState(_appState(data));
         _lastSyncedJson = jsonEncode(store.exportState());
         lastSyncedAt = DateTime.now();
         if (store.pendingMergePush) {
@@ -198,7 +213,7 @@ class SyncService extends ChangeNotifier {
               notifyListeners();
               return;
             }
-            store.applyRemoteState(data);
+            store.applyRemoteState(_appState(data));
             _lastSyncedJson = jsonEncode(store.exportState());
             lastSyncedAt = DateTime.now();
             if (store.pendingMergePush) {
@@ -234,7 +249,7 @@ class SyncService extends ChangeNotifier {
         if (remoteTs > store.updatedAt) {
           // The cloud moved ahead while we were composing this push — adopt it
           // instead of clobbering. Our own edits survive via the per-task merge.
-          store.applyRemoteState(data);
+          store.applyRemoteState(_appState(data));
           _readMeta(data);
           lastSyncedAt = DateTime.now();
           if (store.pendingMergePush) {
@@ -332,7 +347,7 @@ class SyncService extends ChangeNotifier {
       if (row != null && row['data'] != null) {
         final data = Map<String, dynamic>.from(row['data'] as Map);
         _readMeta(data);
-        store.applyRemoteState(data, merge: false); // manual override: cloud wins outright
+        store.applyRemoteState(_appState(data), merge: false); // manual override: cloud wins outright
         _lastSyncedJson = jsonEncode(store.exportState());
         lastSyncedAt = DateTime.now();
         message = 'Loaded the cloud copy'
