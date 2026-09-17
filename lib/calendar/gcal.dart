@@ -56,6 +56,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   // stop all automatic attempts so the user isn't nagged to reconnect over and
   // over. Cleared only by a manual, interactive reconnect.
   bool _autoPaused = false;
+  DateTime? _lastResumeTry; // throttles the resume-triggered refresh
 
   bool get _tokenValid =>
       _token != null &&
@@ -133,13 +134,25 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     _refreshTimer = Timer(delay, () => unawaited(_silentRefresh()));
   }
 
+  /// The longest a *genuinely* no-UI token grant should take (hidden iframe).
+  static const _silentBudget = Duration(milliseconds: 1200);
+
   /// Best-effort silent token refresh. Returns true if a fresh token was
   /// obtained. Used both by the pre-expiry timer and by 401 recovery.
+  ///
+  /// GIS offers no way to demand a strictly no-UI grant: on iOS Safari and in
+  /// PWAs the "silent" request often satisfies itself by opening the Google
+  /// popup, which then *succeeds* — so pausing only on failure still left the
+  /// user prompted every hour. A real silent grant resolves in well under a
+  /// second, so treat a slow success as "that showed UI": keep the token, but
+  /// never auto-request again.
   Future<bool> _silentRefresh() async {
     if (_refreshing || _autoPaused) return false;
     _refreshing = true;
+    final started = DateTime.now();
     try {
       final t = await auth.getCalendarToken(interactive: false);
+      final elapsed = DateTime.now().difference(started);
       if (t == null) {
         // Couldn't refresh without user interaction — stop auto-retrying so we
         // don't keep popping the Google prompt. The user reconnects manually.
@@ -148,8 +161,11 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
         await _save();
         return false;
       }
-      _autoPaused = false;
       _storeToken(t);
+      if (elapsed > _silentBudget) {
+        _autoPaused = true; // it interrupted them; don't do that again
+        _refreshTimer?.cancel();
+      }
       await _save();
       return true;
     } finally {
@@ -195,11 +211,19 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     if (!supported || !_wantConnected) return;
     if (_tokenValid) {
       if (isConnected) unawaited(refreshEvents());
-    } else {
-      unawaited(_silentRefresh().then((ok) {
-        if (ok) unawaited(_afterAuth());
-      }));
+      return;
     }
+    // On web this fires on every tab refocus, so don't chase a new token each
+    // time — that is what made the prompt reappear "every now and then".
+    final now = DateTime.now();
+    if (_lastResumeTry != null &&
+        now.difference(_lastResumeTry!) < const Duration(minutes: 30)) {
+      return;
+    }
+    _lastResumeTry = now;
+    unawaited(_silentRefresh().then((ok) {
+      if (ok) unawaited(_afterAuth());
+    }));
   }
 
   Future<void> disconnect() async {
