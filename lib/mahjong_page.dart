@@ -269,13 +269,6 @@ class _FocusWallState extends State<FocusWall>
               textAlign: TextAlign.center,
               style: GoogleFonts.spaceMono(
                   color: C.creamTxt.withValues(alpha: .6), fontSize: 9.5)),
-          const SizedBox(height: 6),
-          // CC BY-SA 4.0 requires the tile artwork to be credited wherever it's
-          // shown, and these builds are published publicly.
-          Text('tiles by Cangjie6 · Wikimedia Commons · CC BY-SA 4.0',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.spaceMono(
-                  color: C.creamTxt.withValues(alpha: .35), fontSize: 8)),
         ]),
       );
 

@@ -6,6 +6,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'device.dart';
+import 'widgets/decor.dart';
+import 'widgets/subtasks.dart';
+import 'widgets/type.dart';
 import 'palette.dart';
 import 'labels.dart';
 import 'models.dart';
@@ -83,39 +86,6 @@ class CadenceApp extends StatelessWidget {
     );
   }
 }
-
-/// A styled row (icon + label) for popup-menu items.
-class _MenuRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool danger;
-  const _MenuRow(this.icon, this.label, {this.danger = false});
-  @override
-  Widget build(BuildContext context) => Row(children: [
-        Icon(icon, size: 17, color: danger ? C.red : C.ink2),
-        const SizedBox(width: 11),
-        Text(label,
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: danger ? C.red : C.ink)),
-      ]);
-}
-
-// shared type styles — each resolves to the active skin's font at build time.
-//  Cadence: Noto Serif HK (accent) / Oswald (display) / Space Mono (labels).
-//  Chronicle: Playfair Display (accent + display) / EB Garamond (labels).
-TextStyle serifHk({double size = 14, Color color = C.ink}) => C.chronicle
-    ? GoogleFonts.cinzel(fontWeight: FontWeight.w600, fontSize: size, color: color)
-    : GoogleFonts.notoSerifHk(fontWeight: FontWeight.w900, fontSize: size, color: color);
-TextStyle disp({double size = 14, FontWeight w = FontWeight.w600, Color color = C.ink}) =>
-    C.chronicle
-        ? GoogleFonts.cinzel(fontSize: size, fontWeight: w, color: color)
-        : GoogleFonts.oswald(fontSize: size, fontWeight: w, color: color);
-TextStyle mono({double size = 11, Color color = C.ink3, FontWeight w = FontWeight.w400}) =>
-    C.chronicle
-        ? GoogleFonts.ebGaramond(fontSize: size, color: color, fontWeight: w)
-        : GoogleFonts.spaceMono(fontSize: size, color: color, fontWeight: w);
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -619,9 +589,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         if (v == 'del') _confirmDeleteGroup(group);
                       },
                       itemBuilder: (_) => [
-                        const PopupMenuItem(value: 'rename', child: _MenuRow(Icons.edit_outlined, 'Rename group')),
+                        const PopupMenuItem(value: 'rename', child: MenuRow(Icons.edit_outlined, 'Rename group')),
                         PopupMenuItem(value: 'color', child: _colorMenuRow(group.c)),
-                        const PopupMenuItem(value: 'del', child: _MenuRow(Icons.delete_outline, 'Delete group', danger: true)),
+                        const PopupMenuItem(value: 'del', child: MenuRow(Icons.delete_outline, 'Delete group', danger: true)),
                       ],
                     ),
                   )
@@ -847,7 +817,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _boardView() => ScrollConfiguration(
-        behavior: const _DragScrollBehavior(),
+        behavior: const DragScrollBehavior(),
         child: Listener(
           onPointerSignal: (event) {
             // Only a *horizontal* wheel/trackpad gesture pans the board. A
@@ -1269,16 +1239,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             itemBuilder: (_) => [
               const PopupMenuItem(
                   value: 'add',
-                  child: _MenuRow(Icons.add, 'Add task')),
+                  child: MenuRow(Icons.add, 'Add task')),
               const PopupMenuItem(
                   value: 'rename',
-                  child: _MenuRow(Icons.edit_outlined, 'Rename group')),
+                  child: MenuRow(Icons.edit_outlined, 'Rename group')),
               PopupMenuItem(
                   value: 'color',
                   child: _colorMenuRow(g.c)),
               const PopupMenuItem(
                   value: 'del',
-                  child: _MenuRow(Icons.delete_outline, 'Delete group', danger: true)),
+                  child: MenuRow(Icons.delete_outline, 'Delete group', danger: true)),
             ],
           ),
         ]),
@@ -1827,10 +1797,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         },
         itemBuilder: (_) => [
-          const PopupMenuItem(value: 'rename', child: _MenuRow(Icons.edit_outlined, 'Rename')),
+          const PopupMenuItem(value: 'rename', child: MenuRow(Icons.edit_outlined, 'Rename')),
           const PopupMenuItem(
-              value: 'stop', child: _MenuRow(Icons.playlist_remove, 'Stop being daily')),
-          const PopupMenuItem(value: 'del', child: _MenuRow(Icons.delete_outline, 'Delete', danger: true)),
+              value: 'stop', child: MenuRow(Icons.playlist_remove, 'Stop being daily')),
+          const PopupMenuItem(value: 'del', child: MenuRow(Icons.delete_outline, 'Delete', danger: true)),
         ],
       );
 
@@ -2006,25 +1976,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         },
         itemBuilder: (_) => [
-          const PopupMenuItem(value: 'date', child: _MenuRow(Icons.event_outlined, 'Set due date')),
+          const PopupMenuItem(value: 'date', child: MenuRow(Icons.event_outlined, 'Set due date')),
           PopupMenuItem(
               value: 'time',
-              child: _MenuRow(Icons.schedule,
+              child: MenuRow(Icons.schedule,
                   t.dueTime == null ? 'Set time' : 'Change time')),
           const PopupMenuItem(
-              value: 'tomorrow', child: _MenuRow(Icons.wb_sunny_outlined, 'Due tomorrow')),
+              value: 'tomorrow', child: MenuRow(Icons.wb_sunny_outlined, 'Due tomorrow')),
           PopupMenuItem(
               value: 'pri',
-              child: _MenuRow(Icons.priority_high,
+              child: MenuRow(Icons.priority_high,
                   t.pri ? 'Clear priority (${L.pri})' : 'Mark priority (${L.pri})')),
-          const PopupMenuItem(value: 'sub', child: _MenuRow(Icons.checklist, 'Add / show subtasks')),
-          const PopupMenuItem(value: 'move', child: _MenuRow(Icons.drive_file_move_outline, 'Move to group…')),
-          const PopupMenuItem(value: 'daily', child: _MenuRow(Icons.repeat, 'Make it a daily')),
-          const PopupMenuItem(value: 'del', child: _MenuRow(Icons.delete_outline, 'Delete', danger: true)),
+          const PopupMenuItem(value: 'sub', child: MenuRow(Icons.checklist, 'Add / show subtasks')),
+          const PopupMenuItem(value: 'move', child: MenuRow(Icons.drive_file_move_outline, 'Move to group…')),
+          const PopupMenuItem(value: 'daily', child: MenuRow(Icons.repeat, 'Make it a daily')),
+          const PopupMenuItem(value: 'del', child: MenuRow(Icons.delete_outline, 'Delete', danger: true)),
         ],
       );
 
-  Widget _subs(Task t, Color color) => _SubtaskSection(task: t, color: color);
+  Widget _subs(Task t, Color color) => SubtaskSection(task: t, color: color);
 
   // ---------------- chips ----------------
   Widget _chip(String label, Color color) => Container(
@@ -2428,240 +2398,3 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 }
 
-/// Lets the board pan by mouse drag (not just touch/trackpad), so wide-screen
-/// mouse users can scroll the board horizontally.
-/// A task's subtasks: tap a title to edit it inline (like the task title), and
-/// a persistent add field at the bottom that adds on Enter and keeps focus so
-/// several can be entered in a row.
-class _SubtaskSection extends StatefulWidget {
-  final Task task;
-  final Color color;
-  const _SubtaskSection({required this.task, required this.color});
-  @override
-  State<_SubtaskSection> createState() => _SubtaskSectionState();
-}
-
-class _SubtaskSectionState extends State<_SubtaskSection> {
-  int? _editIndex;
-  final _editCtl = TextEditingController();
-  final _addCtl = TextEditingController();
-  final _addFocus = FocusNode();
-
-  @override
-  void dispose() {
-    _editCtl.dispose();
-    _addCtl.dispose();
-    _addFocus.dispose();
-    super.dispose();
-  }
-
-  void _startEdit(int i, SubTask s) {
-    setState(() {
-      _editIndex = i;
-      _editCtl.text = s.title;
-      _editCtl.selection = TextSelection(baseOffset: 0, extentOffset: s.title.length);
-    });
-  }
-
-  void _commitEdit(SubTask s) {
-    if (_editIndex == null) return;
-    store.renameSub(widget.task, s, _editCtl.text);
-    setState(() => _editIndex = null);
-  }
-
-  void _add() {
-    final v = _addCtl.text.trim();
-    if (v.isEmpty) return;
-    store.addSub(widget.task, v);
-    _addCtl.clear();
-    _addFocus.requestFocus(); // keep focus so you can add several in a row
-  }
-
-  TextField _editField(SubTask s) => TextField(
-        controller: _editCtl,
-        autofocus: true,
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _commitEdit(s),
-        onTapOutside: (_) => _commitEdit(s),
-        style: const TextStyle(fontSize: 13, color: C.ink),
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: C.paper,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-          enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(5),
-              borderSide: const BorderSide(color: C.mustard, width: 1.5)),
-          focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(5),
-              borderSide: const BorderSide(color: C.mustard, width: 1.5)),
-        ),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    final t = widget.task;
-    final color = widget.color;
-    return Container(
-      margin: const EdgeInsets.only(top: 10, left: 2),
-      padding: const EdgeInsets.only(top: 9),
-      decoration: const BoxDecoration(border: Border(top: BorderSide(color: C.line))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        for (final (i, s) in t.sub.indexed)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 7),
-            child: Row(children: [
-              GestureDetector(
-                onTap: () => store.toggleSub(s),
-                child: Container(
-                  width: 16,
-                  height: 16,
-                  decoration: BoxDecoration(
-                    color: s.done ? color : C.paper,
-                    border: Border.all(color: color, width: 1.5),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: s.done ? const Icon(Icons.check, size: 10, color: C.creamTxt) : null,
-                ),
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: _editIndex == i
-                    ? _editField(s)
-                    : GestureDetector(
-                        onTap: () => _startEdit(i, s),
-                        behavior: HitTestBehavior.opaque,
-                        child: Text(s.title,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: s.done ? C.ink3 : C.ink,
-                              decoration: s.done ? TextDecoration.lineThrough : null,
-                            )),
-                      ),
-              ),
-              const SizedBox(width: 6),
-              GestureDetector(
-                onTap: () => store.deleteSub(t, s),
-                child: const Icon(Icons.close, size: 14, color: C.ink3),
-              ),
-            ]),
-          ),
-        Row(children: [
-          const Icon(Icons.add, size: 16, color: C.greenD),
-          const SizedBox(width: 7),
-          Expanded(
-            child: TextField(
-              controller: _addCtl,
-              focusNode: _addFocus,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _add(),
-              style: const TextStyle(fontSize: 13, color: C.ink),
-              decoration: const InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: 'add subtask…',
-                hintStyle: TextStyle(fontSize: 13, color: C.ink3),
-                contentPadding: EdgeInsets.symmetric(vertical: 4),
-              ),
-            ),
-          ),
-        ]),
-      ]),
-    );
-  }
-}
-
-class _DragScrollBehavior extends MaterialScrollBehavior {
-  const _DragScrollBehavior();
-  @override
-  Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-        PointerDeviceKind.stylus,
-      };
-}
-
-/// The green 窗花 (window-grille) lattice strip across the top of the masthead.
-class LatticeStrip extends StatelessWidget {
-  const LatticeStrip({super.key});
-  @override
-  Widget build(BuildContext context) => ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
-        child: SizedBox(
-          height: 15,
-          width: double.infinity,
-          child: CustomPaint(painter: _LatticePainter()),
-        ),
-      );
-}
-
-class _LatticePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = C.paper2);
-    final p = Paint()
-      ..color = C.green.withValues(alpha: .85)
-      ..strokeWidth = 1.6;
-    for (double x = 0; x <= size.width; x += 15) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), p);
-    }
-    for (double y = 0; y <= size.height; y += 15) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-/// Chronicle's logogram: a red wax seal with a cream "C" monogram, standing in
-/// for Cadence's 節奏 in the masthead.
-class SealMark extends StatelessWidget {
-  final double size;
-  const SealMark({super.key, this.size = 58});
-  @override
-  Widget build(BuildContext context) =>
-      SizedBox(width: size, height: size, child: CustomPaint(painter: _SealPainter()));
-}
-
-class _SealPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size s) {
-    final w = s.width;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Offset.zero & s, Radius.circular(w * .16)),
-      Paint()..color = C.red,
-    );
-    // cream inner keyline
-    final inset = w * .12;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-          Rect.fromLTWH(inset, inset, w - 2 * inset, s.height - 2 * inset),
-          Radius.circular(w * .08)),
-      Paint()
-        ..color = C.creamTxt.withValues(alpha: .85)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = w * .03,
-    );
-    // a cream "C" monogram
-    final mark = Paint()
-      ..color = C.creamTxt
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * .08
-      ..strokeCap = StrokeCap.round;
-    final rad = w * .21;
-    const pi = 3.14159;
-    // a "C": arc with a gap on the right side
-    canvas.drawArc(
-      Rect.fromCircle(center: Offset(w / 2, s.height / 2), radius: rad),
-      0.30 * pi, // start lower-right
-      1.40 * pi, // sweep clockwise, leaving the right open
-      false,
-      mark,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
