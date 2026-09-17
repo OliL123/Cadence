@@ -513,27 +513,53 @@ class CadenceStore extends ChangeNotifier {
   static String _dateStr(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   String get _todayStr => _dateStr(DateTime.now());
-  String get _yestStr => _dateStr(DateTime.now().subtract(const Duration(days: 1)));
+
+  /// Yesterday by the calendar, not by subtracting 24 hours. On the day a
+  /// daylight-saving change makes the local day 23 or 25 hours long, "now minus
+  /// 24h" can land back on today — which made a live streak look broken.
+  String get _yestStr {
+    final n = DateTime.now();
+    return _dateStr(DateTime(n.year, n.month, n.day - 1));
+  }
+
+  /// Whole calendar days from [iso] to today: 0 = today, 1 = yesterday.
+  /// Negative means the date is ahead of us, which happens when a device in a
+  /// timezone ahead ticked it — that's still "done", not a broken streak.
+  /// Compared in UTC so a daylight-saving shift can't turn a day into 23 hours
+  /// and round the gap to zero.
+  int? _daysSince(String? iso) {
+    final d = parseISO(iso);
+    if (d == null) return null;
+    final n = DateTime.now();
+    return DateTime.utc(n.year, n.month, n.day)
+        .difference(DateTime.utc(d.year, d.month, d.day))
+        .inDays;
+  }
 
   List<Task> dailies() => tasks.where((t) => t.daily).toList();
 
-  bool dailyDoneToday(Task t) => t.doneDate == _todayStr;
+  bool dailyDoneToday(Task t) {
+    final gap = _daysSince(t.doneDate);
+    return gap != null && gap <= 0;
+  }
 
-  /// Streak in effect right now — 0 once a day has been missed.
+  /// Streak in effect right now — 0 once a whole day has been missed.
   int dailyStreak(Task t) {
-    if (t.doneDate == null) return 0;
-    if (t.doneDate == _todayStr || t.doneDate == _yestStr) return t.streak;
-    return 0;
+    final gap = _daysSince(t.doneDate);
+    if (gap == null) return 0;
+    return gap <= 1 ? t.streak : 0;
   }
 
   /// Tick (or un-tick) today's completion of a daily, keeping the streak.
   void toggleDailyDone(Task t) {
-    if (t.doneDate == _todayStr) {
+    final gap = _daysSince(t.doneDate);
+    if (gap != null && gap <= 0) {
+      // Already ticked today — undo it, restoring the pre-tick state.
       t.streak = t.streak > 0 ? t.streak - 1 : 0;
       t.doneDate = t.streak > 0 ? _yestStr : null;
     } else {
-      final base = (t.doneDate == _yestStr) ? t.streak : 0;
-      t.streak = base + 1;
+      // Continue the run only if the last tick was literally yesterday.
+      t.streak = gap == 1 ? t.streak + 1 : 1;
       t.doneDate = _todayStr;
     }
     _touch(t);
