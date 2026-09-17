@@ -296,13 +296,20 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     final items = (j['items'] ?? []) as List;
     calendars = [
       for (final it in items)
-        GCalCalendar(
-          it['id'] as String,
-          (it['summaryOverride'] ?? it['summary'] ?? it['id']) as String,
-          _parseColor(it['backgroundColor'] as String?),
-        )
+        if (!_isHolidayCalendar(it['id'] as String))
+          GCalCalendar(
+            it['id'] as String,
+            (it['summaryOverride'] ?? it['summary'] ?? it['id']) as String,
+            _parseColor(it['backgroundColor'] as String?),
+          )
     ];
   }
+
+  /// Google publishes its own "Holidays in …" calendars. The app has a
+  /// dedicated holidays/feasts section, so offering them here just duplicates
+  /// it — hide them from the picker and ignore them when fetching events.
+  static bool _isHolidayCalendar(String id) =>
+      id.contains('#holiday@') || id.contains('holiday@group.v.calendar.google.com');
 
   bool isSelected(String id) => store.gcalCalendars.contains(id);
 
@@ -327,6 +334,9 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     final byId = {for (final c in calendars) c.id: c};
     final out = <GCalEvent>[];
     for (final id in store.gcalCalendars) {
+      // A selection made before holiday calendars were hidden can still name
+      // one; don't fetch it, or its events would reappear in Upcoming.
+      if (calendars.isNotEmpty && !byId.containsKey(id)) continue;
       final color = byId[id]?.color ?? const Color(0xFF2C4C7C);
       final uri = Uri.parse(
           'https://www.googleapis.com/calendar/v3/calendars/${Uri.encodeComponent(id)}/events'

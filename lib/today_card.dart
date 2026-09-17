@@ -25,6 +25,7 @@ class TodayCard extends StatefulWidget {
 
 class _TodayCardState extends State<TodayCard> {
   Timer? _timer;
+  Timer? _wxTimer;
   WeatherData? _wx;
   bool _wxLoading = true;
   List<Holiday> _holidays = [];
@@ -42,12 +43,25 @@ class _TodayCardState extends State<TodayCard> {
     _wxKey = _weatherKey();
     _loadWeather();
     _loadHolidays();
+    // Keep the forecast current if the app stays open for a long stretch.
+    _wxTimer = Timer.periodic(const Duration(minutes: 30), (_) => _loadWeather());
     // These settings also arrive by sync from another device; without this the
     // card kept showing the old country's feasts until the app was restarted.
     store.addListener(_onStoreChanged);
   }
 
   String _weatherKey() => '${store.weatherLat},${store.weatherLon}';
+
+  /// The next 24 hours starting with the hour we're in. Filtered at render
+  /// time, not fetch time: the forecast is fetched once, so as hours passed the
+  /// strip used to keep whatever hour you opened the app on at the left.
+  List<HourForecast> _upcomingHours() {
+    final hours = _wx?.hours;
+    if (hours == null) return const [];
+    final n = DateTime.now();
+    final cur = DateTime(n.year, n.month, n.day, n.hour);
+    return hours.where((h) => !h.time.isBefore(cur)).take(24).toList();
+  }
 
   void _onStoreChanged() {
     if (store.holidayCountries.join(',') != _holKey) _loadHolidays();
@@ -103,6 +117,7 @@ class _TodayCardState extends State<TodayCard> {
   @override
   void dispose() {
     _timer?.cancel();
+    _wxTimer?.cancel();
     store.removeListener(_onStoreChanged);
     super.dispose();
   }
@@ -547,14 +562,15 @@ class _TodayCardState extends State<TodayCard> {
                 style: _sans(13, C.ink2)),
           ),
         ]),
-        if (_wx!.hours.isNotEmpty) ...[
+        if (_upcomingHours().isNotEmpty) ...[
           const SizedBox(height: 18),
-          Text(C.chronicle ? 'LATER TODAY' : '稍後 · LATER TODAY', style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
+          Text(C.chronicle ? 'NEXT 24 HOURS' : '未來廿四小時 · NEXT 24 HOURS',
+              style: _mono(9, C.ink3).copyWith(letterSpacing: 1)),
           const SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(children: [
-              for (final h in _wx!.hours.take(24))
+              for (final h in _upcomingHours())
                 Padding(
                   padding: const EdgeInsets.only(right: 16),
                   child: _hourTile(h),
