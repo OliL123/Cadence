@@ -80,11 +80,11 @@ class CadenceStore extends ChangeNotifier {
     final cutoff = now - doneKeep.inMilliseconds;
     final before = tasks.length;
     tasks.removeWhere((t) => t.done && t.doneAt != null && t.doneAt! < cutoff);
-    if (tasks.length != before) {
-      _changed(); // an actual removal is a real change — sync it across devices
-    } else if (migrated) {
-      save(); // only stamped timestamps; persist quietly, don't bump the clock
-    }
+    // Persist quietly either way. This purge is derived deterministically from
+    // the data plus the clock, so every device performs the same removal on its
+    // own — it must NOT bump `updatedAt`, or a stale device that merely opened
+    // the app would look like the newest writer and push its old state up.
+    if (tasks.length != before || migrated) save();
   }
 
   /// The full app state as a JSON-serialisable map (used for local persistence
@@ -164,7 +164,10 @@ class CadenceStore extends ChangeNotifier {
   /// stops a stale device's blob from silently reverting a per-task edit — e.g.
   /// a task just made a daily jumping back into its old group.
   void applyRemoteState(Map<String, dynamic> j, {bool merge = true}) {
+    final localTasks = List<Task>.from(tasks);
     final localById = {for (final t in tasks) t.id: t};
+    final localUid = _uid;
+    final remoteTs = (j['updatedAt'] ?? 0) as int;
     applyState(j); // replaces tasks with the (newer) incoming blob
     var swapped = false;
     if (merge) {
@@ -175,6 +178,21 @@ class CadenceStore extends ChangeNotifier {
           swapped = true;
         }
       }
+      // Tasks we have that the incoming blob doesn't. Two very different cases,
+      // told apart by the cloud snapshot's own clock:
+      //   edited after the snapshot  -> local work the cloud never saw, keep it
+      //   edited before the snapshot -> the cloud knew it and dropped it, so it
+      //                                 was deleted elsewhere; let it go.
+      final incoming = {for (final t in tasks) t.id};
+      for (final loc in localTasks) {
+        if (!incoming.contains(loc.id) && loc.uAt > remoteTs) {
+          tasks.add(loc);
+          swapped = true;
+        }
+      }
+      // Never rewind the id counter below ids we just kept, or a new task could
+      // reuse an existing id.
+      if (localUid > _uid) _uid = localUid;
     }
     if (swapped) {
       _reconcile(); // re-attach wall/tiles for the swapped task objects

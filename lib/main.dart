@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'device.dart';
 import 'palette.dart';
 import 'labels.dart';
 import 'models.dart';
@@ -26,6 +27,7 @@ import 'platform/apk_download_stub.dart'
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await store.load();
+  await Device.init(); // stable per-device id + label, used by sync
   await initHomeWidget();
   Reminders.instance.init();
   try {
@@ -1055,9 +1057,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   child: Text(
                       s.lastSyncedAt == null
                           ? 'Waiting for first sync…'
-                          : 'Last synced ${_ago(s.lastSyncedAt!)}',
+                          : 'Last synced ${_ago(s.lastSyncedAt!)}'
+                              '${s.lastDeviceName != null && !s.lastWriteWasThisDevice ? ' · from ${s.lastDeviceName}' : ''}',
                       style: mono(size: 11, color: C.ink3)),
                 ),
+                _deviceBox(s),
+                const SizedBox(height: 12),
                 if (s.message != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
@@ -1142,6 +1147,75 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             borderRadius: BorderRadius.circular(8),
             borderSide: const BorderSide(color: C.mustard, width: 1.5)),
       );
+
+  /// Which device you're on, and which one is nominated as the main copy.
+  Widget _deviceBox(SyncService s) {
+    final main = s.mainDeviceId == null
+        ? 'not set'
+        : (s.isMainDevice ? '${s.mainDeviceName ?? Device.name} (this one)' : s.mainDeviceName ?? 'another device');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(11, 9, 9, 10),
+      decoration: BoxDecoration(
+        color: C.paper,
+        border: Border.all(color: C.line, width: 1.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.devices_outlined, size: 16, color: C.ink2),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('This device: ${Device.name}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: C.ink)),
+          ),
+          Hoverable(
+            onTap: () => _renameDeviceDialog(s),
+            borderRadius: BorderRadius.circular(5),
+            child: const Padding(
+              padding: EdgeInsets.all(3),
+              child: Icon(Icons.edit_outlined, size: 15, color: C.ink3),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 5),
+        Row(children: [
+          Icon(s.isMainDevice ? Icons.star : Icons.star_border,
+              size: 15, color: s.isMainDevice ? C.mustard : C.ink3),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text('Main device: $main',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: mono(size: 11, color: C.ink2)),
+          ),
+        ]),
+        if (!s.isMainDevice) ...[
+          const SizedBox(height: 7),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => s.setMainDevice(),
+              icon: const Icon(Icons.star_outline, size: 15),
+              label: const Text('Make this the main device', style: TextStyle(fontSize: 11.5)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: C.mustard,
+                side: const BorderSide(color: C.mustard, width: 1.3),
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  Future<void> _renameDeviceDialog(SyncService s) async {
+    final v = await _promptText('Name this device', Device.name);
+    if (v != null && v.trim().isNotEmpty) await s.renameDevice(v);
+  }
 
   Widget _groupHeader(Group g, String count) => Container(
         margin: const EdgeInsets.only(bottom: 11),
