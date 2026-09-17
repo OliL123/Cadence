@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -94,8 +95,13 @@ Future<void> initHomeWidget() async {
   try {
     await HomeWidget.registerInteractivityCallback(widgetBackgroundCallback);
     await pushWallToWidget();
+    // Coalesce bursts: this fires on every store change, and a sync merge can
+    // emit many in a row. Each push re-serialises every task and crosses the
+    // platform channel, so doing it per notification is pure waste.
+    Timer? debounce;
     store.addListener(() {
-      pushWallToWidget();
+      debounce?.cancel();
+      debounce = Timer(const Duration(milliseconds: 800), pushWallToWidget);
     });
   } catch (_) {}
 }

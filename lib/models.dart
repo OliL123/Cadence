@@ -16,7 +16,6 @@ class Tile {
   String suit;
   int val;
   Tile(this.suit, this.val);
-  bool get isDragon => suit == 'z';
   Map<String, dynamic> toJson() => {'s': suit, 'v': val};
   factory Tile.fromJson(Map<String, dynamic> j) => Tile(j['s'] ?? 'm', j['v'] ?? 1);
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -27,8 +29,18 @@ class Reminders {
       await impl?.requestNotificationsPermission();
       _ready = true;
       await sync();
-      store.addListener(sync);
+      store.addListener(_onStoreChanged);
     } catch (_) {}
+  }
+
+  Timer? _debounce;
+
+  /// Rescheduling cancels and re-registers every reminder, so doing it on each
+  /// individual store change (a sync merge emits a burst of them) is expensive
+  /// and briefly leaves the user with no reminders at all. Coalesce instead.
+  void _onStoreChanged() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(seconds: 2), sync);
   }
 
   /// Cancel and re-schedule reminders for every future dated+timed task.
@@ -60,6 +72,12 @@ class Reminders {
               d.year, d.month, d.day, int.tryParse(hm[0]) ?? 0, int.tryParse(hm[1]) ?? 0);
           when = due.subtract(const Duration(hours: 1));
           body = C.chronicle ? 'due in an hour' : '一小時後到期 · due in an hour';
+          if (!when.isAfter(now) && due.isAfter(now)) {
+            // Due within the hour: the "hour before" slot has already passed,
+            // so remind at the due time itself rather than not at all.
+            when = due;
+            body = C.chronicle ? 'due now' : '到期 · due now';
+          }
         } else {
           // Date only: remind at 7am on the day it's due.
           when = DateTime(d.year, d.month, d.day, 7, 0);
