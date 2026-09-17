@@ -194,6 +194,11 @@ class CadenceStore extends ChangeNotifier {
       // reuse an existing id.
       if (localUid > _uid) _uid = localUid;
     }
+    // Groups arrive wholesale from the cloud, so a task we just kept may point
+    // at a group that only ever existed on this device. Re-home it rather than
+    // leave it orphaned: every section matches on an exact group key, so an
+    // orphan renders nowhere and looks like lost data.
+    _rehomeOrphans();
     if (swapped) {
       _reconcile(); // re-attach wall/tiles for the swapped task objects
       updatedAt = DateTime.now().millisecondsSinceEpoch; // our merge is newest
@@ -231,6 +236,18 @@ class CadenceStore extends ChangeNotifier {
   void _touch(Task t) {
     t.uAt = DateTime.now().millisecondsSinceEpoch;
     _changed();
+  }
+
+  /// Point any task whose group no longer exists at the first group, matching
+  /// what [deleteGroup] does. Sections match on an exact group key, so an
+  /// orphaned task would render in no section at all.
+  void _rehomeOrphans() {
+    if (groups.isEmpty) return;
+    final keys = {for (final g in groups) g.key};
+    final dest = groups.first.key;
+    for (final t in tasks) {
+      if (!keys.contains(t.group)) t.group = dest;
+    }
   }
 
   /// Ensure every starred task has a tile and is on the wall; keep the deck sane.

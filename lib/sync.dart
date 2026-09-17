@@ -236,9 +236,16 @@ class SyncService extends ChangeNotifier {
           // instead of clobbering. Our own edits survive via the per-task merge.
           store.applyRemoteState(data);
           _readMeta(data);
-          _lastSyncedJson = jsonEncode(store.exportState());
           lastSyncedAt = DateTime.now();
-          store.pendingMergePush = false;
+          if (store.pendingMergePush) {
+            // The merge kept edits the cloud doesn't have, so our state is now
+            // the newest. Publish it — dropping it here would leave the two
+            // devices diverged until the next unrelated local edit.
+            store.pendingMergePush = false;
+            await _overwriteCloud();
+          } else {
+            _lastSyncedJson = jsonEncode(store.exportState());
+          }
           notifyListeners();
           return;
         }
