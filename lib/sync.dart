@@ -176,8 +176,12 @@ class SyncService extends ChangeNotifier {
           await _push(force: true); // push the corrected merge back up
         }
       } else if (store.updatedAt > remoteTs) {
-        // We genuinely hold newer edits — publish them.
+        // We genuinely hold newer edits — publish them. The calendar selection
+        // has its own clock, so take that separately if theirs is newer.
+        store.applyRemoteGcalSelection(data);
         await _push(force: true);
+      } else {
+        store.applyRemoteGcalSelection(data);
       }
       // Equal clocks and nothing to arbitrate: leave the cloud alone. Pushing
       // here is what let a stale device overwrite good cloud data.
@@ -208,8 +212,10 @@ class SyncService extends ChangeNotifier {
             final remoteTs = (data['updatedAt'] ?? 0) as int;
             _readMeta(data);
             // Our own write coming back, or an older one — nothing to apply,
-            // but keep the "who wrote last" labels fresh.
+            // but keep the "who wrote last" labels fresh and still honour a
+            // newer calendar selection (it has its own clock).
             if (remoteTs <= store.updatedAt) {
+              store.applyRemoteGcalSelection(data);
               notifyListeners();
               return;
             }

@@ -109,6 +109,63 @@ void main() {
         reason: 'a new task must not reuse the id of a task we kept');
   });
 
+  test('an auto-picked calendar selection is not wiped by a never-picked blob', () {
+    final s = CadenceStore();
+    s.applyState({'tasks': <dynamic>[], 'updatedAt': 100});
+    // What _afterAuth does when the user hasn't chosen yet: set it quietly,
+    // which deliberately leaves the selection's own clock at 0.
+    s.setGcalCalendarsQuiet(['primary@gmail.com']);
+    expect(s.gcalCalsUpdatedAt, 0);
+
+    // Another device that never explicitly picked pushes its empty selection,
+    // also with clock 0. An equal clock is a tie, not "newer".
+    s.applyRemoteState({
+      'tasks': <dynamic>[],
+      'updatedAt': 500,
+      'gcalCals': <String>[],
+      'gcalCalsAt': 0,
+    });
+
+    expect(s.gcalCalendars, ['primary@gmail.com'],
+        reason: 'a tie must not reset the calendar selection');
+  });
+
+  test('a newer calendar selection arrives even when our overall clock is ahead', () {
+    final s = CadenceStore();
+    s.applyState({'tasks': <dynamic>[], 'updatedAt': 100});
+    s.setGcalCalendars(['a@x.com']); // explicit pick: stamps its own clock
+    final mine = s.gcalCalsUpdatedAt;
+
+    // The other device picked later, but its blob's overall clock is behind
+    // ours, so applyRemoteState would never run. The selection has its own
+    // clock precisely so it still propagates.
+    expect(
+        s.applyRemoteGcalSelection({
+          'gcalCals': ['b@x.com'],
+          'gcalCalsAt': mine + 1000,
+        }),
+        isTrue);
+    expect(s.gcalCalendars, ['b@x.com']);
+
+    // An older selection is still ignored.
+    s.applyRemoteGcalSelection({
+      'gcalCals': ['c@x.com'],
+      'gcalCalsAt': mine - 1,
+    });
+    expect(s.gcalCalendars, ['b@x.com']);
+  });
+
+  test('duplicate holiday countries are collapsed', () {
+    final s = CadenceStore();
+    s.applyState({
+      'tasks': <dynamic>[],
+      'updatedAt': 1,
+      'holCountries': ['US', 'US', 'GB'],
+    });
+    expect(s.holidayCountries, ['US', 'GB'],
+        reason: 'a repeated code fetches and lists that country twice');
+  });
+
   test('view preferences are per-device and survive a cloud pull', () {
     final s = CadenceStore();
     s.applyState({

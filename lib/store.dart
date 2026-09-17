@@ -140,14 +140,21 @@ class CadenceStore extends ChangeNotifier {
     weatherLat = (j['wxLat'] ?? weatherLat).toDouble();
     weatherLon = (j['wxLon'] ?? weatherLon).toDouble();
     if (j['holCountries'] is List) {
-      holidayCountries = (j['holCountries'] as List).map((e) => e as String).toList();
+      // De-duplicate: a repeated code would fetch and list that country's
+      // holidays twice.
+      holidayCountries =
+          (j['holCountries'] as List).map((e) => e as String).toSet().toList();
     } else if (j['holCountry'] != null) {
       holidayCountries = [j['holCountry'] as String]; // migrate old single value
     }
     // The calendar selection has its own clock so it isn't clobbered by an
     // unrelated edit on another device — only a *newer selection* wins.
+    // Strictly newer: on an equal clock the remote is not newer, it's a tie.
+    // This matters because the auto-picked default (setGcalCalendarsQuiet)
+    // leaves the clock at 0, and `>=` let any blob that had never explicitly
+    // picked (also 0) wipe the selection with its empty list.
     final remoteGcalAt = (j['gcalCalsAt'] ?? 0) as int;
-    if (j['gcalCals'] is List && remoteGcalAt >= gcalCalsUpdatedAt) {
+    if (j['gcalCals'] is List && remoteGcalAt > gcalCalsUpdatedAt) {
       gcalCalendars = (j['gcalCals'] as List).map((e) => e as String).toList();
       gcalCalsUpdatedAt = remoteGcalAt;
     }
@@ -418,6 +425,25 @@ class CadenceStore extends ChangeNotifier {
 
   /// Set the chosen calendars WITHOUT stamping the selection clock — used for
   /// the auto-default so it can never win against a real pick syncing in.
+  /// Apply only the calendar selection from a remote blob, judged by its own
+  /// clock. The selection is deliberately independent of the whole-state LWW,
+  /// but [applyRemoteState] is gated on the overall clock — so without this a
+  /// newer selection never arrived on a device whose overall clock was ahead.
+  bool applyRemoteGcalSelection(Map<String, dynamic> j) {
+    final at = (j['gcalCalsAt'] ?? 0) as int;
+    if (j['gcalCals'] is! List || at <= gcalCalsUpdatedAt) return false;
+    final ids = (j['gcalCals'] as List).map((e) => e as String).toList();
+    gcalCalsUpdatedAt = at;
+    if (ids.join(',') == gcalCalendars.join(',')) {
+      save(); // same selection, just a newer clock
+      return false;
+    }
+    gcalCalendars = ids;
+    notifyListeners();
+    save();
+    return true;
+  }
+
   void setGcalCalendarsQuiet(List<String> ids) {
     gcalCalendars = ids;
     notifyListeners();
