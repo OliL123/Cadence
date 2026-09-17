@@ -828,6 +828,23 @@ class CadenceStore extends ChangeNotifier {
     return DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
   }
 
+  /// The exact moment a task is due: its date plus its time of day, or the end
+  /// of that day when no time was set — a date-only task isn't late until the
+  /// day is actually over.
+  DateTime? dueAt(Task t) {
+    final d = parseISO(t.dueISO);
+    if (d == null) return null;
+    final hm = t.dueTime?.split(':');
+    if (hm != null && hm.length == 2) {
+      final h = int.tryParse(hm[0]);
+      final m = int.tryParse(hm[1]);
+      if (h != null && m != null && h < 24 && m < 60) {
+        return DateTime(d.year, d.month, d.day, h, m);
+      }
+    }
+    return DateTime(d.year, d.month, d.day, 23, 59, 59);
+  }
+
   String? dueLabel(Task t) {
     final d = parseISO(t.dueISO);
     if (d == null) return null;
@@ -836,7 +853,12 @@ class CadenceStore extends ChangeNotifier {
     final days = d.difference(t0).inDays;
     final tm = t.dueTime != null ? ' ${_fmtTime(t.dueTime!)}' : '';
     if (days < 0) return 'overdue$tm';
-    if (days == 0) return 'today$tm';
+    // A task due at a time that has already passed today is late, not "today".
+    if (days == 0) {
+      final at = dueAt(t);
+      if (at != null && at.isBefore(now)) return 'overdue$tm';
+      return 'today$tm';
+    }
     if (days == 1) return 'tmr$tm';
     if (days < 7) {
       return '${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.weekday % 7]}$tm';
@@ -856,20 +878,18 @@ class CadenceStore extends ChangeNotifier {
     return '$h12:$m$ap';
   }
 
+  /// Due within the next two days (or already past). Time-aware, so a task due
+  /// at 18:00 counts down by the hour rather than jumping a whole day at a time.
   bool soon(Task t) {
-    final d = parseISO(t.dueISO);
-    if (d == null) return false;
-    final now = DateTime.now();
-    final t0 = DateTime(now.year, now.month, now.day);
-    return d.difference(t0).inDays <= 2;
+    final at = dueAt(t);
+    if (at == null) return false;
+    return at.difference(DateTime.now()) <= const Duration(days: 2);
   }
 
   bool isOverdue(Task t) {
     if (t.done || t.daily) return false;
-    final d = parseISO(t.dueISO);
-    if (d == null) return false;
-    final now = DateTime.now();
-    return d.difference(DateTime(now.year, now.month, now.day)).inDays < 0;
+    final at = dueAt(t);
+    return at != null && at.isBefore(DateTime.now());
   }
 }
 
