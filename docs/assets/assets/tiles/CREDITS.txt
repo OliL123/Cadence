@@ -1,0 +1,15 @@
+Mahjong tile artwork
+--------------------
+Author:  Cangjie6 (https://commons.wikimedia.org/wiki/User:Cangjie6)
+Source:  Wikimedia Commons, "SVG Oblique illustrations of Mahjong tiles"
+         e.g. https://commons.wikimedia.org/wiki/File:MJw1-.svg
+License: CC BY-SA 4.0  (https://creativecommons.org/licenses/by-sa/4.0/)
+
+The SVGs were rendered to PNG at 220px wide via the Commons thumbnail API and
+renamed to this app's suit/value scheme:
+  m1-m9  characters (萬)   <- MJw1- .. MJw9-
+  p1-p9  dots       (筒)   <- MJt1- .. MJt9-
+  s1-s9  bamboo     (索)   <- MJs1- .. MJs9-
+  z1-z3  dragons 中/發/白  <- MJd1- .. MJd3-
+
+No other changes were made to the artwork.
