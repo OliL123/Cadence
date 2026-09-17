@@ -29,6 +29,8 @@ class _TodayCardState extends State<TodayCard> {
   bool _wxLoading = true;
   List<Holiday> _holidays = [];
   bool _holLoading = true;
+  String _holKey = ''; // which countries _holidays was fetched for
+  String _wxKey = ''; // which location _wx was fetched for
 
   @override
   void initState() {
@@ -36,25 +38,58 @@ class _TodayCardState extends State<TodayCard> {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
+    _holKey = store.holidayCountries.join(',');
+    _wxKey = _weatherKey();
     _loadWeather();
     _loadHolidays();
+    // These settings also arrive by sync from another device; without this the
+    // card kept showing the old country's feasts until the app was restarted.
+    store.addListener(_onStoreChanged);
+  }
+
+  String _weatherKey() => '${store.weatherLat},${store.weatherLon}';
+
+  void _onStoreChanged() {
+    if (store.holidayCountries.join(',') != _holKey) _loadHolidays();
+    if (_weatherKey() != _wxKey) _loadWeather();
   }
 
   Future<void> _loadWeather() async {
+    final key = _weatherKey();
     if (mounted) setState(() => _wxLoading = true);
     final w = await fetchWeather(store.weatherLat, store.weatherLon);
-    if (mounted) setState(() { _wx = w; _wxLoading = false; });
+    if (!mounted) return;
+    setState(() {
+      // Keep the last good forecast if this fetch failed for the same place.
+      if (w != null || _wxKey != key) _wx = w;
+      _wxKey = key;
+      _wxLoading = false;
+    });
   }
 
   Future<void> _loadHolidays() async {
+    final key = store.holidayCountries.join(',');
     if (mounted) setState(() => _holLoading = true);
     final now = DateTime.now();
     final all = <Holiday>[];
+    final seen = <String>{};
     for (final c in store.holidayCountries) {
-      all.addAll(await fetchHolidays(c, now.year));
-      all.addAll(await fetchHolidays(c, now.year + 1));
+      for (final y in [now.year, now.year + 1]) {
+        for (final h in await fetchHolidays(c, y)) {
+          // Two selected countries usually share several holidays (New Year,
+          // Christmas); one entry per country reads as a duplicate.
+          if (seen.add('${h.date.toIso8601String()}|${h.name}')) all.add(h);
+        }
+      }
     }
-    if (mounted) setState(() { _holidays = all; _holLoading = false; });
+    if (!mounted) return;
+    setState(() {
+      // A failed fetch (offline, rate-limited) must not wipe a good list we
+      // already have — that's what made feasts vanish now and then.
+      if (all.isNotEmpty || _holKey != key) _holidays = all;
+      _holKey = key;
+      _holLoading = false;
+    });
   }
 
   Holiday? _nextHoliday() {
@@ -68,6 +103,7 @@ class _TodayCardState extends State<TodayCard> {
   @override
   void dispose() {
     _timer?.cancel();
+    store.removeListener(_onStoreChanged);
     super.dispose();
   }
 
