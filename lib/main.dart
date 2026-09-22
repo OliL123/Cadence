@@ -371,8 +371,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(5),
             child: C.chronicle
-                ? const SpreadWall(showHeader: true)
-                : const FocusWall(showHeader: true),
+                ? SpreadWall(showHeader: true)
+                : FocusWall(showHeader: true),
           ),
         ),
       );
@@ -506,8 +506,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             SizedBox(
                 width: 300,
                 child: C.chronicle
-                    ? const SpreadWall(showHeader: true)
-                    : const FocusWall(showHeader: true)),
+                    ? SpreadWall(showHeader: true)
+                    : FocusWall(showHeader: true)),
           ]),
         ),
       );
@@ -660,8 +660,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           .copyWith(fontStyle: FontStyle.italic)
                       : serifHk(size: 18, color: C.red)),
             ]);
-            if (c.maxWidth < 520) {
-              // stack: title, then the buttons (wrapping if very narrow)
+            // Below the breakpoint, stack the title above wrapped buttons. The
+            // threshold leaves room for the toolbar's widest state (Done, Sort,
+            // hide-empty and the view switch) so the single-row branch can't
+            // overflow.
+            if (c.maxWidth < 640) {
               return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: title),
                 const SizedBox(height: 8),
@@ -674,8 +677,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ]);
             }
             return Row(children: [
-              title,
-              const Spacer(),
+              Expanded(
+                  child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: title)),
+              const SizedBox(width: 8),
               _doneToggleBtn(),
               const SizedBox(width: 8),
               _sortBtn(),
@@ -899,7 +906,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget _boardColumn(Group g) {
     final all = store.tasksIn(g.key).where((t) => !t.daily).toList();
-    final rows = all.where((t) => !t.done).toList();
+    // Honour the Sort control here too — it only sorted the sections view.
+    final rows = store.sortRows(all.where((t) => !t.done).toList());
     // Honour the global "Done" toggle here too, so completed cards can be
     // reviewed in board mode (shown, de-emphasised, below the active ones).
     final doneRows = store.showDone ? all.where((t) => t.done).toList() : const <Task>[];
