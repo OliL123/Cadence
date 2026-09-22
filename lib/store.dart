@@ -885,6 +885,16 @@ class CadenceStore extends ChangeNotifier {
     final now = DateTime.now();
     final days = _daysFromToday(d);
     final tm = t.dueTime != null ? ' ${_fmtTime(t.dueTime!)}' : '';
+    const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    // A finished task is never "overdue" — it's just when it had been due.
+    // Show the plain date so a completed task in the archive doesn't read as
+    // still late.
+    if (t.done) {
+      if (days == 0) return 'today$tm';
+      if (days == 1) return 'tmr$tm';
+      if (days == -1) return 'yesterday$tm';
+      return '${d.day} ${mon[d.month - 1]}$tm';
+    }
     if (days < 0) return 'overdue$tm';
     // A task due at a time that has already passed today is late, not "today".
     if (days == 0) {
@@ -896,7 +906,6 @@ class CadenceStore extends ChangeNotifier {
     if (days < 7) {
       return '${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.weekday % 7]}$tm';
     }
-    const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${d.day} ${mon[d.month - 1]}$tm';
   }
 
