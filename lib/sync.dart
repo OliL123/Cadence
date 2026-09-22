@@ -58,6 +58,7 @@ class SyncService extends ChangeNotifier {
     'filter',
     'showDone',
     'headerCollapsed',
+    'hideEmptyGroups',
   };
 
   Map<String, dynamic> _appState(Map<String, dynamic> data) =>

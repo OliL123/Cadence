@@ -21,6 +21,7 @@ class CadenceStore extends ChangeNotifier {
   String filter = 'all'; // 'all' or a group key (left-rail selection)
   bool showDone = false;
   bool headerCollapsed = false; // collapse masthead + TODAY card for more list room
+  bool hideEmptyGroups = false; // hide a group's section once it has nothing left to do
   int updatedAt = 0; // ms since epoch of the last local change (for sync LWW)
   // TODAY card preferences (synced)
   String weatherPlace = 'Ann Arbor';
@@ -115,6 +116,7 @@ class CadenceStore extends ChangeNotifier {
         'filter': filter,
         'showDone': showDone,
         'headerCollapsed': headerCollapsed,
+        'hideEmptyGroups': hideEmptyGroups,
       };
 
   /// Replace the whole in-memory state from a map (from disk or from the cloud).
@@ -135,6 +137,7 @@ class CadenceStore extends ChangeNotifier {
     filter = j['filter'] ?? filter;
     showDone = j['showDone'] ?? showDone;
     headerCollapsed = j['headerCollapsed'] ?? headerCollapsed;
+    hideEmptyGroups = j['hideEmptyGroups'] ?? hideEmptyGroups;
     updatedAt = j['updatedAt'] ?? 0;
     weatherPlace = j['wxPlace'] ?? weatherPlace;
     weatherLat = (j['wxLat'] ?? weatherLat).toDouble();
@@ -846,6 +849,11 @@ class CadenceStore extends ChangeNotifier {
     _viewChanged();
   }
 
+  void setHideEmptyGroups(bool v) {
+    hideEmptyGroups = v;
+    _viewChanged();
+  }
+
   // ---------- due helpers ----------
   static DateTime? parseISO(String? iso) {
     if (iso == null) return null;
@@ -875,8 +883,7 @@ class CadenceStore extends ChangeNotifier {
     final d = parseISO(t.dueISO);
     if (d == null) return null;
     final now = DateTime.now();
-    final t0 = DateTime(now.year, now.month, now.day);
-    final days = d.difference(t0).inDays;
+    final days = _daysFromToday(d);
     final tm = t.dueTime != null ? ' ${_fmtTime(t.dueTime!)}' : '';
     if (days < 0) return 'overdue$tm';
     // A task due at a time that has already passed today is late, not "today".
@@ -904,12 +911,23 @@ class CadenceStore extends ChangeNotifier {
     return '$h12:$m$ap';
   }
 
-  /// Due within the next two days (or already past). Time-aware, so a task due
-  /// at 18:00 counts down by the hour rather than jumping a whole day at a time.
+  /// On the "due soon" list: due today, tomorrow or the day after — or already
+  /// past. Judged in calendar days, not a rolling 48 hours: the rolling window
+  /// measured a date-only task to 23:59 of its day, so one due in two days fell
+  /// outside it and only tasks with a time set reliably showed up.
   bool soon(Task t) {
-    final at = dueAt(t);
-    if (at == null) return false;
-    return at.difference(DateTime.now()) <= const Duration(days: 2);
+    final d = parseISO(t.dueISO);
+    if (d == null) return false;
+    return _daysFromToday(d) <= 2;
+  }
+
+  /// Calendar days from today to [d] (0 = today, negative = past), counted in
+  /// UTC so a daylight-saving day can't round to the wrong number.
+  static int _daysFromToday(DateTime d) {
+    final n = DateTime.now();
+    return DateTime.utc(d.year, d.month, d.day)
+        .difference(DateTime.utc(n.year, n.month, n.day))
+        .inDays;
   }
 
   bool isOverdue(Task t) {

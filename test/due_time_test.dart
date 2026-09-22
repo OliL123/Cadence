@@ -51,11 +51,23 @@ void main() {
     expect(s.isOverdue(task(due: iso(y), time: '09:00')), isTrue);
   });
 
-  test('soon() counts by the hour, not whole days', () {
-    final inThree = DateTime.now().add(const Duration(days: 3));
-    expect(s.soon(task(due: iso(inThree), time: hm(inThree))), isFalse);
-    final inOne = DateTime.now().add(const Duration(days: 1));
-    expect(s.soon(task(due: iso(inOne), time: hm(inOne))), isTrue);
+  test('soon() covers today through two days out, by calendar day', () {
+    final n = DateTime.now();
+    DateTime day(int k) => DateTime(n.year, n.month, n.day + k);
+    expect(s.soon(task(due: iso(day(0)))), isTrue);
+    expect(s.soon(task(due: iso(day(1)))), isTrue);
+    expect(s.soon(task(due: iso(day(3)))), isFalse);
+    expect(s.soon(task(due: iso(day(-1)))), isTrue, reason: 'overdue is urgent too');
+  });
+
+  test('a date-only task two days out is on the urgent list', () {
+    // Regression: a rolling 48h window measured date-only tasks to 23:59, so
+    // this fell off the list and only tasks with a time set showed up.
+    final n = DateTime.now();
+    final inTwo = DateTime(n.year, n.month, n.day + 2);
+    expect(s.soon(task(due: iso(inTwo))), isTrue);
+    expect(s.soon(task(due: iso(inTwo), time: '23:00')), isTrue,
+        reason: 'with or without a time, it is the same day');
   });
 
   test('done and daily tasks are never overdue', () {

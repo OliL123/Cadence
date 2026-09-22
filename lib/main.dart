@@ -99,8 +99,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _addGroup = store.groups.first.key;
   String _mobileView = 'tasks'; // mobile bottom-nav: 'tasks' or 'focus'
   DateTime? _addDate;
+  TimeOfDay? _addTime; // optional time for the add bar's due date
   int? _editingTaskId;
   int? _highlightId; // task briefly highlighted after a widget tap
+  final _litKey = GlobalKey(); // on the highlighted card, so it can be scrolled to
   final _editCtl = TextEditingController();
   Timer? _snackTimer; // force-dismisses the undo snackbar (see _snack)
   static const _widgetChannel = MethodChannel('cadence/widget');
@@ -125,7 +127,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Bring a task into view (from a widget tap): switch to the tasks page,
   /// reveal its group (or the Done archive), and flash it.
-  void _openTask(int id) {
+  /// Bring a task on screen and flash it. [keepView] leaves the group filter
+  /// alone when the task is already visible under it (the due-soon chips use
+  /// this, so tapping one doesn't collapse "All" down to a single group).
+  void _openTask(int id, {bool keepView = false}) {
     final t = store.byId(id);
     if (t == null) return;
     setState(() {
@@ -134,9 +139,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         store.setShowDone(true);
         store.setFilter('all');
       } else if (!t.daily) {
-        store.setFilter(t.group);
+        final visible = store.filter == 'all' || store.filter == t.group;
+        if (!keepView || !visible) store.setFilter(t.group);
       }
       _highlightId = id;
+    });
+    // Once it's laid out, scroll every enclosing scrollable so it's in view.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _litKey.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(ctx,
+            duration: const Duration(milliseconds: 380),
+            curve: Curves.easeOutCubic,
+            alignment: .25);
+      }
     });
     Future.delayed(const Duration(milliseconds: 2400), () {
       if (mounted && _highlightId == id) setState(() => _highlightId = null);
@@ -652,6 +668,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   _doneToggleBtn(),
                   _sortBtn(),
+                  if (store.viewMode != 'board') _emptyGroupsBtn(),
                   _viewSwitch(),
                 ]),
               ]);
@@ -662,6 +679,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _doneToggleBtn(),
               const SizedBox(width: 8),
               _sortBtn(),
+              if (store.viewMode != 'board') ...[
+                const SizedBox(width: 8),
+                _emptyGroupsBtn(),
+              ],
               const SizedBox(width: 8),
               _viewSwitch(),
             ]);
@@ -725,8 +746,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  // A due-soon chip is a read-only heads-up — no tap action (avoids accidental edits).
-  Widget _dueSoonChip(Task t) => Container(
+  // Tapping a due-soon chip jumps to that task (it only navigates — no edit).
+  Widget _dueSoonChip(Task t) => Hoverable(
+        onTap: () => _openTask(t.id, keepView: true),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
         decoration: BoxDecoration(
           color: C.paper2,
@@ -746,6 +770,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           Text(store.dueLabel(t) ?? '',
               style: mono(size: 11, color: C.red).copyWith(fontWeight: FontWeight.w700)),
         ]),
+        ),
       );
 
   // ---------------- toolbar / view switch / groups ----------------
@@ -794,6 +819,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
       child: Text(C.chronicle ? 'Done ($n)' : '完成 Done ($n)',
           style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+    );
+  }
+
+  /// Per-device toggle: hide groups that have nothing left to do (sections
+  /// view only — board columns always show every group).
+  Widget _emptyGroupsBtn() {
+    final hiding = store.hideEmptyGroups;
+    return Tooltip(
+      message: hiding ? 'Show empty groups' : 'Hide empty groups',
+      child: OutlinedButton(
+        onPressed: () => store.setHideEmptyGroups(!hiding),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: hiding ? C.creamTxt : C.ink2,
+          backgroundColor: hiding ? C.ink2 : C.paper2,
+          side: BorderSide(color: hiding ? C.ink2 : C.line, width: 1.5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          minimumSize: const Size(0, 0),
+        ),
+        child: Icon(hiding ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            size: 16),
+      ),
     );
   }
 
@@ -1311,7 +1358,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     onPressed: date == null
                         ? null
                         : () async {
-                            final tt = await _promptTime(time ?? TimeOfDay.now());
+                            final tt = await _promptTime(time);
                             if (tt != null) setLocal(() => time = tt);
                           },
                     icon: const Icon(Icons.schedule, size: 16),
@@ -1581,13 +1628,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final rows = store
         .sortRows(store.tasksIn(g.key).where((t) => !t.done && !t.daily).toList());
     final total = store.tasksIn(g.key).where((t) => !t.daily).length;
-    // In the "All" view, don't show a header for a group whose only tasks are
-    // already completed (unless the Done archive is being shown) — an empty
-    // "0/1" section reads as if tasks still exist.
-    if (rows.isEmpty && !store.showDone && store.filter == 'all') return [];
+    // A group with nothing left to do stays on screen by default, so finishing
+    // its last task doesn't make the whole group vanish. Hiding it is opt-in,
+    // per device (the eye button beside Sort), and only in the "All" view.
+    if (rows.isEmpty &&
+        store.hideEmptyGroups &&
+        !store.showDone &&
+        store.filter == 'all') {
+      return [];
+    }
     return [
       _groupHeader(g, '${rows.length}/$total'),
       for (final t in rows) _taskCard(t),
+      if (rows.isEmpty)
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 6),
+          child: Text(total > 0 ? 'all done here ✓' : 'nothing here yet',
+              style: mono(size: 10.5, color: C.ink3)),
+        ),
       const SizedBox(height: 20),
     ];
   }
@@ -1818,6 +1876,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final overdue = store.isOverdue(t);
     final lit = _highlightId == t.id;
     return Padding(
+      key: lit ? _litKey : null,
       padding: const EdgeInsets.only(bottom: 12),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
@@ -2136,10 +2195,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Icon(Icons.event, size: 16, color: has ? C.navy : C.ink3),
             if (has) ...[
               const SizedBox(width: 5),
-              Text(_addDateLabel(_addDate!),
+              Text(
+                  _addDateLabel(_addDate!) +
+                      (_addTime == null
+                          ? ''
+                          : ' ${_addTime!.hour.toString().padLeft(2, '0')}:${_addTime!.minute.toString().padLeft(2, '0')}'),
                   style: mono(size: 11, color: C.navy).copyWith(fontWeight: FontWeight.w700)),
               GestureDetector(
-                onTap: () => setState(() => _addDate = null),
+                onTap: () => setState(() {
+                  _addDate = null;
+                  _addTime = null;
+                }),
                 child: const Padding(
                   padding: EdgeInsets.all(4),
                   child: Icon(Icons.close, size: 13, color: C.navy),
@@ -2173,7 +2239,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       lastDate: DateTime(now.year + 3),
       builder: _themedPicker,
     );
-    if (picked != null) setState(() => _addDate = picked);
+    if (picked == null) return;
+    setState(() => _addDate = picked);
+    // Then an optional time, matching the task menu's date → time flow.
+    // Cancel leaves any time already chosen as it is.
+    final tm = await _promptTime(_addTime);
+    if (tm != null && mounted) setState(() => _addTime = tm);
   }
 
   /// Wraps a date/time picker in the cha-chaan-teng palette.
@@ -2242,20 +2313,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await _pickDue(t);
       if (t.dueISO == null) return; // cancelled — no date to anchor the time
     }
-    final tod = await _promptTime(_parseTime(t.dueTime) ?? const TimeOfDay(hour: 9, minute: 0));
+    final tod = await _promptTime(_parseTime(t.dueTime));
     if (tod != null) {
       store.setDueTime(t,
           '${tod.hour.toString().padLeft(2, '0')}:${tod.minute.toString().padLeft(2, '0')}');
     }
   }
 
-  /// A simple, reliable 24-hour time entry: one field, its text pre-selected so
-  /// you can type straight over it (no deleting the default first). Accepts
-  /// "18:30", "1830", "8:5", "8.30". Returns null on cancel / empty / invalid.
-  Future<TimeOfDay?> _promptTime(TimeOfDay initial) {
-    final init = '${initial.hour.toString().padLeft(2, '0')}:${initial.minute.toString().padLeft(2, '0')}';
-    final ctl = TextEditingController(text: init);
-    ctl.selection = TextSelection(baseOffset: 0, extentOffset: init.length);
+  /// A simple, reliable 24-hour time entry. The field starts EMPTY with the
+  /// current value shown as its hint, so on any device you just type — there's
+  /// nothing to delete first. (Pre-selecting "09:00" didn't survive on iOS:
+  /// Safari won't raise the keyboard without a tap, the tap moved the caret
+  /// inside the text, typing appended to it, and the over-long result was
+  /// silently rejected.) Accepts "18:30", "1830", "8:5", "8.30". Submitting
+  /// it empty keeps [initial]; nonsense shows an error rather than quietly
+  /// closing. Returns null on cancel.
+  Future<TimeOfDay?> _promptTime(TimeOfDay? initial) {
+    String fmt(TimeOfDay t) =>
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    final ctl = TextEditingController();
     TimeOfDay? parse(String raw) {
       final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
       if (digits.isEmpty || digits.length > 4) return null;
@@ -2272,27 +2348,45 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return TimeOfDay(hour: h, minute: m);
     }
 
+    String? error;
     return showDialog<TimeOfDay>(
       context: context,
-      builder: (_) => Theme(
-        data: Theme.of(context).copyWith(
-          textSelectionTheme: const TextSelectionThemeData(selectionColor: Color(0x55C2A24C)),
-        ),
-        child: AlertDialog(
+      builder: (_) => StatefulBuilder(builder: (ctx, setLocal) {
+        void submit() {
+          final raw = ctl.text.trim();
+          if (raw.isEmpty) {
+            Navigator.pop(ctx, initial); // nothing typed: keep what was there
+            return;
+          }
+          final t = parse(raw);
+          if (t == null) {
+            setLocal(() => error = 'Try 18:30 or 1830');
+            return;
+          }
+          Navigator.pop(ctx, t);
+        }
+
+        return AlertDialog(
           backgroundColor: C.paper2,
           title: const Text('Set time', style: TextStyle(fontWeight: FontWeight.w700)),
           content: TextField(
             controller: ctl,
             autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: false),
+            keyboardType: TextInputType.number,
             textInputAction: TextInputAction.done,
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: C.ink),
             textAlign: TextAlign.center,
-            onSubmitted: (v) => Navigator.pop(context, parse(v)),
+            onChanged: (_) {
+              if (error != null) setLocal(() => error = null);
+            },
+            onSubmitted: (_) => submit(),
             decoration: InputDecoration(
               isDense: true,
-              hintText: 'HH:mm  ·  e.g. 18:30',
-              hintStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: C.ink3),
+              hintText: initial == null ? '18:30' : fmt(initial),
+              hintStyle: const TextStyle(
+                  fontSize: 22, fontWeight: FontWeight.w700, color: Color(0x55000000)),
+              helperText: 'HH:mm  ·  "1830" works too',
+              errorText: error,
               filled: true,
               fillColor: C.paper,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -2306,25 +2400,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => Navigator.pop(ctx),
                 style: TextButton.styleFrom(foregroundColor: C.red),
                 child: const Text('Cancel')),
             FilledButton(
                 style: FilledButton.styleFrom(backgroundColor: C.green),
-                onPressed: () => Navigator.pop(context, parse(ctl.text)),
+                onPressed: submit,
                 child: const Text('Set')),
           ],
-        ),
-      ),
+        );
+      }),
     );
   }
 
   void _submitAdd() {
     final text = _addCtl.text.trim();
     if (text.isEmpty) return;
-    store.addTask(text, _addGroup, due: _addDate);
+    final tm = _addTime;
+    store.addTask(text, _addGroup,
+        due: _addDate,
+        dueTime: tm == null
+            ? null
+            : '${tm.hour.toString().padLeft(2, '0')}:${tm.minute.toString().padLeft(2, '0')}');
     _addCtl.clear();
-    setState(() => _addDate = null);
+    setState(() {
+      _addDate = null;
+      _addTime = null;
+    });
   }
 
   // ---------------- dialogs ----------------
