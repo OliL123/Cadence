@@ -660,39 +660,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           .copyWith(fontStyle: FontStyle.italic)
                       : serifHk(size: 18, color: C.red)),
             ]);
-            // Below the breakpoint, stack the title above wrapped buttons. The
-            // threshold leaves room for the toolbar's widest state (Done, Sort,
-            // hide-empty and the view switch) so the single-row branch can't
-            // overflow.
-            if (c.maxWidth < 640) {
+            final controls = [
+              _doneToggleBtn(),
+              _sortBtn(),
+              if (store.viewMode != 'board') _emptyGroupsBtn(),
+              _viewSwitch(),
+            ];
+            // Wide enough for one line: spread the title and controls evenly
+            // across the row so they breathe instead of bunching at the edge.
+            // Below that, stack the title and let the controls space out on
+            // their own full-width line.
+            if (c.maxWidth < 560) {
               return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: title),
-                const SizedBox(height: 8),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  _doneToggleBtn(),
-                  _sortBtn(),
-                  if (store.viewMode != 'board') _emptyGroupsBtn(),
-                  _viewSwitch(),
-                ]),
+                const SizedBox(height: 10),
+                Wrap(spacing: 10, runSpacing: 8, children: controls),
               ]);
             }
-            return Row(children: [
-              Expanded(
-                  child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: title)),
-              const SizedBox(width: 8),
-              _doneToggleBtn(),
-              const SizedBox(width: 8),
-              _sortBtn(),
-              if (store.viewMode != 'board') ...[
-                const SizedBox(width: 8),
-                _emptyGroupsBtn(),
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Flexible(
+                    child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: title)),
+                ...controls,
               ],
-              const SizedBox(width: 8),
-              _viewSwitch(),
-            ]);
+            );
           }),
           const SizedBox(height: 6),
           Text.rich(
