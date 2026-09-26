@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../store.dart';
 
@@ -36,7 +37,9 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   static const _kConnected = 'gcal_connected';
   static const _kToken = 'gcal_token';
   static const _kTokenExp = 'gcal_token_exp'; // ms-since-epoch expiry
-  static const _kAutoPaused = 'gcal_auto_paused'; // background refresh gave up here
+  // Whether the signed-in user has a refresh token stored by the gcal-token
+  // function. The token itself never lives on the device.
+  static const _kServerLinked = 'gcal_server_linked';
 
   GCalStage stage = GCalStage.idle;
   String? message;
@@ -48,31 +51,50 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   // the selection persists and follows you across devices.
 
   bool _wantConnected = false;
+  bool _serverLinked = false;
+  bool _serverReady = false; // gcal-token function deployed with its secrets
   Timer? _refreshTimer;
   bool _refreshing = false;
   bool _observerWired = false;
-  // Once a *silent* refresh can't complete without a popup (common on iOS
-  // Safari / PWAs, where third-party-cookie rules block background grants), we
-  // stop all automatic attempts so the user isn't nagged to reconnect over and
-  // over. Cleared only by a manual, interactive reconnect.
-  bool _autoPaused = false;
-  DateTime? _lastResumeTry; // throttles the resume-triggered refresh
 
   bool get _tokenValid =>
       _token != null &&
       _tokenExp != null &&
       _tokenExp!.isAfter(DateTime.now().add(const Duration(minutes: 1)));
 
+  bool get _signedIn {
+    try {
+      return Supabase.instance.client.auth.currentUser != null;
+    } catch (_) {
+      return false; // Supabase unavailable (offline start / not configured)
+    }
+  }
+
+  /// Web can use the server-held refresh token: the function is live and we
+  /// know who the user is.
+  bool get _canUseServer => !auth.silentTokenIsReallySilent && _serverReady && _signedIn;
+
+  /// Whether access can be renewed with no UI at all. Native sign-in always
+  /// can; the web only via the server.
+  bool get staysConnected =>
+      auth.silentTokenIsReallySilent || (_canUseServer && _serverLinked);
+
+  /// The lasting connection is available but needs a Sync account to hang the
+  /// refresh token on — worth a nudge in the calendar card.
+  bool get needsSyncForLastingLink =>
+      !auth.silentTokenIsReallySilent && _serverReady && !_signedIn;
+
   bool get supported => auth.gcalAuthSupported;
   bool get isConnected => stage == GCalStage.connected;
   bool get isBusy => stage == GCalStage.connecting;
-  /// Previously linked, but a silent refresh gave up — the user can tap to
-  /// reconnect (no automatic popups happen in this state).
-  bool get needsReconnect => _wantConnected && _autoPaused && !isConnected;
+
+  /// Linked before, but not live now — the card offers a Reconnect button.
+  /// Nothing reconnects by itself in this state: no automatic popups, ever.
+  bool get needsReconnect => _wantConnected && !isConnected && !isBusy;
   List<String> get selectedIds => store.gcalCalendars;
 
-  /// Load saved prefs. Reuse a still-valid cached token (so a refresh doesn't
-  /// re-prompt); otherwise try a silent reconnect if the user linked before.
+  /// Load saved prefs. Reuse a still-valid cached token, or renew silently
+  /// where that's genuinely silent. Never opens Google's popup on its own.
   /// The calendar *selection* lives in the synced store, not here.
   Future<void> init() async {
     if (!_observerWired) {
@@ -81,31 +103,41 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     }
     final p = await SharedPreferences.getInstance();
     _wantConnected = p.getBool(_kConnected) ?? false;
-    _autoPaused = p.getBool(_kAutoPaused) ?? false;
+    _serverLinked = p.getBool(_kServerLinked) ?? false;
+    await p.remove('gcal_auto_paused'); // superseded by server refresh tokens
     final savedTok = p.getString(_kToken);
     final savedExp = p.getInt(_kTokenExp);
     if (savedTok != null && savedExp != null) {
       _token = savedTok;
       _tokenExp = DateTime.fromMillisecondsSinceEpoch(savedExp);
     }
+    // Know whether the server path exists before deciding how to renew.
+    if (!auth.silentTokenIsReallySilent) await _probeServer();
     if (!supported || !_wantConnected) return;
     if (_tokenValid) {
-      // Cached token is still good — go straight to connected, no popup.
+      _scheduleRefresh();
       unawaited(_afterAuth());
-    } else if (_autoPaused) {
-      // Silent refresh has failed on this device before; don't auto-prompt on
-      // every launch. Stay idle — the TODAY card shows a Reconnect button the
-      // user can tap when they actually want to.
-      return;
     } else {
       unawaited(_reconnect());
+    }
+  }
+
+  Future<void> _probeServer() async {
+    try {
+      final r = await Supabase.instance.client.functions
+          .invoke('gcal-token', body: {'action': 'ping'})
+          .timeout(const Duration(seconds: 6));
+      final d = r.data;
+      _serverReady = d is Map && d['configured'] == true;
+    } catch (_) {
+      _serverReady = false; // not deployed yet, or offline
     }
   }
 
   Future<void> _save() async {
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kConnected, _wantConnected);
-    await p.setBool(_kAutoPaused, _autoPaused);
+    await p.setBool(_kServerLinked, _serverLinked);
     if (_token != null && _tokenExp != null) {
       await p.setString(_kToken, _token!);
       await p.setInt(_kTokenExp, _tokenExp!.millisecondsSinceEpoch);
@@ -121,51 +153,35 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     _scheduleRefresh();
   }
 
-  /// Silently re-request the access token ~2 min before it expires, so a linked
-  /// calendar stays live without the user ever seeing a popup or blank list.
+  /// Renew ~2 min before expiry — only when that can happen with no UI.
   void _scheduleRefresh() {
     _refreshTimer?.cancel();
-    if (_tokenExp == null || _autoPaused) return;
+    if (_tokenExp == null || !staysConnected) return;
     final lead = _tokenExp!
         .subtract(const Duration(minutes: 2))
         .difference(DateTime.now());
-    // Fire at least a few seconds out; if already past-due, fire soon.
+    // After a sleep the timer fires late; renew straight away then.
     final delay = lead.isNegative ? const Duration(seconds: 3) : lead;
     _refreshTimer = Timer(delay, () => unawaited(_silentRefresh()));
   }
 
-  /// The longest a *genuinely* no-UI token grant should take (hidden iframe).
-  static const _silentBudget = Duration(milliseconds: 1200);
-
-  /// Best-effort silent token refresh. Returns true if a fresh token was
-  /// obtained. Used both by the pre-expiry timer and by 401 recovery.
-  ///
-  /// GIS offers no way to demand a strictly no-UI grant: on iOS Safari and in
-  /// PWAs the "silent" request often satisfies itself by opening the Google
-  /// popup, which then *succeeds* — so pausing only on failure still left the
-  /// user prompted every hour. A real silent grant resolves in well under a
-  /// second, so treat a slow success as "that showed UI": keep the token, but
-  /// never auto-request again.
+  /// Renew the access token without any UI, or do nothing. On the web that
+  /// means asking the gcal-token function to use the stored refresh token;
+  /// natively google_sign_in renews itself. Google's "silent" web request is
+  /// never used from here: it opens a popup, which is what made the app ask
+  /// to link Google every time a laptop woke from sleep.
   Future<bool> _silentRefresh() async {
-    if (_refreshing || _autoPaused) return false;
+    if (_refreshing) return false;
     _refreshing = true;
-    final started = DateTime.now();
     try {
-      final t = await auth.getCalendarToken(interactive: false);
-      final elapsed = DateTime.now().difference(started);
-      if (t == null) {
-        // Couldn't refresh without user interaction — stop auto-retrying so we
-        // don't keep popping the Google prompt. The user reconnects manually.
-        _autoPaused = true;
-        _refreshTimer?.cancel();
-        await _save();
-        return false;
+      (String, int)? t;
+      if (auth.silentTokenIsReallySilent) {
+        t = await auth.getCalendarToken(interactive: false);
+      } else if (_canUseServer && _serverLinked) {
+        t = await _refreshViaServer();
       }
+      if (t == null) return false;
       _storeToken(t);
-      if (elapsed > _silentBudget) {
-        _autoPaused = true; // it interrupted them; don't do that again
-        _refreshTimer?.cancel();
-      }
       await _save();
       return true;
     } finally {
@@ -173,38 +189,95 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  Future<(String, int)?> _refreshViaServer() async {
+    try {
+      return _tokenFrom(await _call({'action': 'refresh'}));
+    } on _Rejected {
+      // Revoked, or Google's 7-day limit while the consent screen is in
+      // Testing. Nothing to renew from any more — wait for a manual Reconnect.
+      _serverLinked = false;
+      await _save();
+      return null;
+    } catch (_) {
+      return null; // offline / transient: keep the link and retry later
+    }
+  }
+
+  (String, int)? _tokenFrom(Map<String, dynamic> d) {
+    final tok = d['access_token'];
+    if (tok is! String || tok.isEmpty) return null;
+    return (tok, (d['expires_in'] as num?)?.toInt() ?? 3600);
+  }
+
+  /// Calls the gcal-token function as the signed-in user. Throws [_Rejected]
+  /// when the stored grant is definitively gone; other failures throw as-is.
+  Future<Map<String, dynamic>> _call(Map<String, dynamic> body) async {
+    try {
+      final r = await Supabase.instance.client.functions
+          .invoke('gcal-token', body: body)
+          .timeout(const Duration(seconds: 12));
+      final d = r.data;
+      return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};
+    } on FunctionException catch (e) {
+      final det = e.details;
+      final err = det is Map ? det['error'] : null;
+      if (err == 'invalid_grant' || err == 'no_refresh_token') {
+        throw _Rejected(err as String);
+      }
+      rethrow;
+    }
+  }
+
   Future<void> _reconnect() async {
-    if (!await _silentRefresh()) return; // stay idle; the Connect button remains
+    if (!await _silentRefresh()) return; // stay idle; Reconnect button shows
     await _afterAuth();
   }
 
   Future<void> connect() async {
     if (!supported) {
-      stage = GCalStage.error;
-      message = 'Google sign-in isn’t available on this platform yet.';
-      notifyListeners();
+      _fail('Google sign-in isn’t available on this platform yet.');
       return;
     }
     stage = GCalStage.connecting;
     message = null;
     notifyListeners();
-    final t = await auth.getCalendarToken(interactive: true);
-    if (t == null) {
-      stage = GCalStage.error;
-      message = 'Sign-in was cancelled.';
-      notifyListeners();
-      return;
+
+    (String, int)? t;
+    if (_canUseServer) {
+      // Code flow: the function exchanges it and keeps the refresh token, so
+      // this is the last time Google has to ask.
+      final code = await auth.getCalendarCode();
+      if (code == null) return _fail('Sign-in was cancelled.');
+      try {
+        t = _tokenFrom(await _call({'action': 'exchange', 'code': code}));
+      } on _Rejected {
+        return _fail(
+            'Google didn’t grant lasting access that time — tap Connect once more.');
+      } catch (_) {
+        return _fail('Couldn’t reach the sign-in service. Try again.');
+      }
+      if (t == null) return _fail('Couldn’t finish connecting to Google. Try again.');
+      _serverLinked = true;
+    } else {
+      // Native (renews itself), or the web before the server is set up /
+      // while signed out of Sync (lasts about an hour, then Reconnect).
+      t = await auth.getCalendarToken(interactive: true);
+      if (t == null) return _fail('Sign-in was cancelled.');
     }
-    _autoPaused = false; // a fresh manual grant re-enables background refresh
-    _storeToken(t);
     _wantConnected = true;
+    _storeToken(t);
     await _save();
     await _afterAuth();
   }
 
-  /// When the app comes back to the foreground (e.g. an iPhone PWA that was
-  /// backgrounded for hours), the token has usually expired — refresh it and
-  /// reload so the calendar isn't blank.
+  void _fail(String msg) {
+    stage = GCalStage.error;
+    message = msg;
+    notifyListeners();
+  }
+
+  /// Back in the foreground (a laptop waking, a PWA reopened): if the token
+  /// lapsed meanwhile, renew it — silently, or not at all.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
@@ -213,14 +286,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
       if (isConnected) unawaited(refreshEvents());
       return;
     }
-    // On web this fires on every tab refocus, so don't chase a new token each
-    // time — that is what made the prompt reappear "every now and then".
-    final now = DateTime.now();
-    if (_lastResumeTry != null &&
-        now.difference(_lastResumeTry!) < const Duration(minutes: 30)) {
-      return;
-    }
-    _lastResumeTry = now;
+    if (!staysConnected) return; // nothing silent to do; Reconnect is shown
     unawaited(_silentRefresh().then((ok) {
       if (ok) unawaited(_afterAuth());
     }));
@@ -228,7 +294,12 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> disconnect() async {
     _refreshTimer?.cancel();
-    _autoPaused = false;
+    if (_serverLinked && _canUseServer) {
+      try {
+        await _call({'action': 'revoke'});
+      } catch (_) {} // best effort; the local unlink below still happens
+    }
+    _serverLinked = false;
     _token = null;
     _tokenExp = null;
     _wantConnected = false;
@@ -368,4 +439,11 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
     if (v == null) return const Color(0xFF2C4C7C);
     return Color(0xFF000000 | v);
   }
+}
+
+/// The server has no usable grant for this user (revoked, expired, or Google
+/// withheld the refresh token) — only a manual Reconnect can fix it.
+class _Rejected implements Exception {
+  final String reason;
+  _Rejected(this.reason);
 }
