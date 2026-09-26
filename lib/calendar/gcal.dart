@@ -41,6 +41,12 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   // function. The token itself never lives on the device.
   static const _kServerLinked = 'gcal_server_linked';
 
+  /// The deployed name of the Edge Function whose source is
+  /// supabase/functions/gcal-token/index.ts. The Dashboard editor assigned it
+  /// this name and functions can't be renamed; to use the tidy name, redeploy
+  /// the same source as `gcal-token` and change this.
+  static const _fn = 'swift-processor';
+
   GCalStage stage = GCalStage.idle;
   String? message;
   String? _token;
@@ -125,7 +131,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _probeServer() async {
     try {
       final r = await Supabase.instance.client.functions
-          .invoke('gcal-token', body: {'action': 'ping'})
+          .invoke(_fn, body: {'action': 'ping'})
           .timeout(const Duration(seconds: 6));
       final d = r.data;
       _serverReady = d is Map && d['configured'] == true;
@@ -214,7 +220,7 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
   Future<Map<String, dynamic>> _call(Map<String, dynamic> body) async {
     try {
       final r = await Supabase.instance.client.functions
-          .invoke('gcal-token', body: body)
+          .invoke(_fn, body: body)
           .timeout(const Duration(seconds: 12));
       final d = r.data;
       return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};

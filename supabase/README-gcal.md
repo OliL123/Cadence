@@ -41,6 +41,11 @@ or in the Dashboard: **Edge Functions → Deploy a new function → Via editor**
 name it exactly `gcal-token`, and paste
 [`functions/gcal-token/index.ts`](functions/gcal-token/index.ts).
 
+> **Deployed name:** the live function is called **`swift-processor`** (the
+> Dashboard editor's auto-name; functions can't be renamed). The app calls it
+> via `_fn` in `lib/calendar/gcal.dart`. If you ever redeploy it as
+> `gcal-token`, update that constant too.
+
 ## 4. Stop Google expiring it after a week
 
 While the OAuth consent screen is in **Testing**, Google revokes refresh tokens
