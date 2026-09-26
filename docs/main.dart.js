@@ -49762,7 +49762,7 @@ l=l.ax
 l===$&&A.a()
 k=t.N
 s=6
-return A.n(l.mg("gcal-token",A.a1(["action","ping"],k,k)).uZ(0,B.rO),$async$Bx)
+return A.n(l.mg("swift-processor",A.a1(["action","ping"],k,k)).uZ(0,B.rO),$async$Bx)
 case 6:n=b
 m=n.a
 o.x=t.f.b(m)&&J.d(J.ab(m,"configured"),!0)
@@ -49896,7 +49896,7 @@ i===$&&A.a()
 i=i.ax
 i===$&&A.a()
 s=7
-return A.n(i.mg("gcal-token",b).uZ(0,B.QQ),$async$rI)
+return A.n(i.mg("swift-processor",b).uZ(0,B.QQ),$async$rI)
 case 7:n=d
 m=n.a
 i=t.N
