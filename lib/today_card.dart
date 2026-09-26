@@ -392,15 +392,26 @@ class _TodayCardState extends State<TodayCard> {
     }
     if (g.isConnected) {
       final ev = g.events;
+      // The lasting link stores its token against the Sync account, so without
+      // one Google will need re-approving in about an hour.
+      final hint = g.needsSyncForLastingLink
+          ? Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('Sign in to Sync to stay connected',
+                  style: _sans(10, C.ink3, FontWeight.w500)),
+            )
+          : null;
       if (ev.isEmpty) {
         return [
           Text('No upcoming events', style: _sans(12, C.ink2)),
           const SizedBox(height: 4),
           Text('Tap ⋯ to pick calendars', style: _sans(10, C.ink3, FontWeight.w500)),
+          if (hint != null) hint,
         ];
       }
       return [
         for (final e in ev.take(3)) _calEventItem(context, e),
+        if (hint != null) hint,
       ];
     }
     // idle / connecting / error

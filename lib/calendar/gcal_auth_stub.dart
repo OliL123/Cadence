@@ -12,6 +12,14 @@ final GoogleSignIn _gsi = GoogleSignIn(scopes: const [googleCalendarScope]);
 /// google_sign_in platform implementation), so hide the button there.
 bool get gcalAuthSupported => Platform.isAndroid || Platform.isIOS;
 
+/// Natively, google_sign_in renews tokens itself without showing any UI, so
+/// the silent path is safe to use from automatic refreshes.
+const bool silentTokenIsReallySilent = true;
+
+/// The authorization-code flow is only needed on the web (where there's no
+/// silent renewal); native sign-in handles offline access on its own.
+Future<String?> getCalendarCode() async => null;
+
 /// Returns (access token, secondsUntilExpiry) for the read-only Calendar scope,
 /// or null. [interactive] true shows the account picker; false is silent.
 /// google_sign_in refreshes its own token, so the expiry here is just a hint.
