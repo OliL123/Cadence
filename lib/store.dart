@@ -699,6 +699,15 @@ class CadenceStore extends ChangeNotifier {
     _touch(t);
   }
 
+  /// Move a subtask within its task. [to] is the final position — the
+  /// already-adjusted index that ReorderableListView.onReorderItem supplies.
+  void reorderSub(Task t, int from, int to) {
+    if (from < 0 || from >= t.sub.length || from == to) return;
+    final s = t.sub.removeAt(from);
+    t.sub.insert(to.clamp(0, t.sub.length), s);
+    _touch(t);
+  }
+
   void renameSub(Task t, SubTask s, String title) {
     final v = title.trim();
     if (v.isEmpty || v == s.title) return;
