@@ -284,9 +284,8 @@ class CadenceStore extends ChangeNotifier {
       final z = zhForName(g.name);
       if (z.isNotEmpty) g.zh = z;
     }
-    // a finished task must never be on the mahjong wall or hold a tile, but it
-    // keeps its star as focus membership (so it shows, struck through, on the
-    // widget's Focus page).
+    // a finished task must never be on the mahjong wall or hold a tile. It
+    // keeps its star, so un-ticking it puts it straight back on the wall.
     for (final t in tasks.where((t) => t.done)) {
       wall.remove(t.id);
       if (t.tile != null) {

@@ -38,12 +38,9 @@ Future<void> pushWallToWidget() async {
       ...store.tasks.where((t) => !t.done && !t.daily),
       ...store.tasks.where((t) => t.done && !t.daily),
     ];
-    // Focus page: active wall tiles (in wall order) first, then completed
-    // focus tasks below so they stay visible instead of disappearing.
-    final focus = <Task>[
-      ...store.wallTasks(),
-      ...store.tasks.where((t) => t.star && t.done),
-    ];
+    // Focus page: only what's still to do, in wall order — a finished focus
+    // task drops off rather than lingering struck-through.
+    final focus = store.wallTasks();
     final now = DateTime.now();
     final dueToday = store.tasks.where((t) {
       if (t.done || t.daily) return false;
