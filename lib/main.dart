@@ -2324,14 +2324,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  /// The time offered when a task doesn't have one yet: the end of the day.
+  static const _defaultDueTime = TimeOfDay(hour: 23, minute: 59);
+
   /// A simple, reliable 24-hour time entry. The field starts EMPTY with the
   /// current value shown as its hint, so on any device you just type — there's
   /// nothing to delete first. (Pre-selecting "09:00" didn't survive on iOS:
   /// Safari won't raise the keyboard without a tap, the tap moved the caret
   /// inside the text, typing appended to it, and the over-long result was
   /// silently rejected.) Accepts "18:30", "1830", "8:5", "8.30". Submitting
-  /// it empty keeps [initial]; nonsense shows an error rather than quietly
-  /// closing. Returns null on cancel.
+  /// it empty keeps [initial], or [_defaultDueTime] if there wasn't one;
+  /// nonsense shows an error rather than quietly closing. Returns null on
+  /// cancel.
   Future<TimeOfDay?> _promptTime(TimeOfDay? initial) {
     String fmt(TimeOfDay t) =>
         '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
@@ -2359,7 +2363,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         void submit() {
           final raw = ctl.text.trim();
           if (raw.isEmpty) {
-            Navigator.pop(ctx, initial); // nothing typed: keep what was there
+            // Nothing typed: keep the existing time, or take the default.
+            Navigator.pop(ctx, initial ?? _defaultDueTime);
             return;
           }
           final t = parse(raw);
@@ -2386,7 +2391,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             onSubmitted: (_) => submit(),
             decoration: InputDecoration(
               isDense: true,
-              hintText: initial == null ? '18:30' : fmt(initial),
+              hintText: fmt(initial ?? _defaultDueTime),
               hintStyle: const TextStyle(
                   fontSize: 22, fontWeight: FontWeight.w700, color: Color(0x55000000)),
               helperText: 'HH:mm  ·  "1830" works too',
