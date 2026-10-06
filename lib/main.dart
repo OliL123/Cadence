@@ -377,22 +377,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _sectionSwitch() {
     Widget seg(String id, String zh, String en, IconData icon) {
       final on = _wideSection == id;
-      return Hoverable(
-        onTap: () => setState(() => _wideSection = id),
-        borderRadius: BorderRadius.zero,
-        hoverColor: on ? const Color(0x26FFFFFF) : const Color(0x1F000000),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          color: on ? C.green : C.paper2,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 15, color: on ? C.creamTxt : C.greenD),
-            const SizedBox(width: 6),
-            Text(zh, style: serifHk(size: 12.5, color: on ? C.creamTxt : C.greenD)),
-            const SizedBox(width: 5),
-            Text(en,
-                style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w700, color: on ? C.creamTxt : C.greenD)),
-          ]),
+      return Expanded(
+        child: Hoverable(
+          onTap: () => setState(() => _wideSection = id),
+          borderRadius: BorderRadius.zero,
+          hoverColor: on ? const Color(0x26FFFFFF) : const Color(0x1F000000),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: on ? C.green : C.paper2,
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(icon, size: 16, color: on ? C.creamTxt : C.greenD),
+              const SizedBox(width: 7),
+              Text(zh, style: serifHk(size: 13.5, color: on ? C.creamTxt : C.greenD)),
+              const SizedBox(width: 6),
+              Text(en,
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w700, color: on ? C.creamTxt : C.greenD)),
+            ]),
+          ),
         ),
       );
     }
@@ -401,9 +403,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       decoration: BoxDecoration(
           border: Border.all(color: C.green, width: 2), borderRadius: BorderRadius.circular(8)),
       clipBehavior: Clip.antiAlias,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
+      child: Row(children: [
         seg('tasks', '待辦', 'Tasks', Icons.check_box_outlined),
-        Container(width: 2, height: 28, color: C.green),
+        Container(width: 2, height: 34, color: C.green),
         seg('career', '求職', 'Career', Icons.work_outline),
       ]),
     );
@@ -544,8 +546,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 const SizedBox(height: 8),
               ],
               Row(children: [
-                if (_hasCareer) _sectionSwitch(),
-                const Spacer(),
+                // Full-width tabs: they're the page's main navigation, so they
+                // span the row rather than sitting as a small pill.
+                if (_hasCareer) ...[
+                  Expanded(child: _sectionSwitch()),
+                  const SizedBox(width: 10),
+                ] else
+                  const Spacer(),
                 _headerCollapseBar(),
               ]),
               const SizedBox(height: 12),
@@ -692,18 +699,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _tasksHeader(),
           _dueSoonBanner(),
           Expanded(
+            // Built in full, not lazily: tapping a DUE SOON chip scrolls to
+            // the task's card, and a lazy ListView hasn't built cards further
+            // down — so those chips silently did nothing.
             child: store.viewMode == 'board'
                 ? _boardView()
-                : ListView(
+                : SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                    children: [
-                      ..._dailySection(),
-                      for (final g in _groupsToShow()) ..._section(g),
-                      if (store.showDone) ...[
-                        const SizedBox(height: 6),
-                        ..._doneSection(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ..._dailySection(),
+                        for (final g in _groupsToShow()) ..._section(g),
+                        if (store.showDone) ...[
+                          const SizedBox(height: 6),
+                          ..._doneSection(),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
           ),
           _addBar(),
