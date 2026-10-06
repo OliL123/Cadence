@@ -15,6 +15,10 @@ class CadenceStore extends ChangeNotifier {
   List<Tile> deck = _buildDeck();
   int _uid = 0;
   int streak = 0;
+  int score = 0; // mahjong points from melds formed on the wall
+  // Melds already scored, as "type:id,id,id", so the same meld isn't scored
+  // (or celebrated) again when other tiles move or the wall is reopened.
+  List<String> scoredMelds = [];
   int _dragCycle = 0;
   String viewMode = 'sections';
   String sortMode = 'manual'; // 'manual' or 'due' (sort each group by due date)
@@ -98,6 +102,8 @@ class CadenceStore extends ChangeNotifier {
         'deck': deck.map((t) => t.toJson()).toList(),
         'uid': _uid,
         'streak': streak,
+        'score': score,
+        'scoredMelds': scoredMelds,
         'updatedAt': updatedAt,
         'wxPlace': weatherPlace,
         'wxLat': weatherLat,
@@ -132,6 +138,9 @@ class CadenceStore extends ChangeNotifier {
     wall = ((j['wall'] ?? []) as List).map((e) => e as int).toList();
     _uid = j['uid'] ?? 0;
     streak = j['streak'] ?? 0;
+    score = j['score'] ?? 0;
+    scoredMelds =
+        ((j['scoredMelds'] ?? []) as List).map((e) => e as String).toList();
     viewMode = j['viewMode'] ?? viewMode;
     sortMode = j['sortMode'] ?? sortMode;
     filter = j['filter'] ?? filter;
@@ -352,11 +361,54 @@ class CadenceStore extends ChangeNotifier {
     return Tile(suit, val);
   }
 
+  /// How often a draw is steered toward a tile that could meld with one
+  /// already on the wall: same suit and within two in value (a pung or a run
+  /// in the making). A purely random draw from 108 tiles almost never melds
+  /// with the handful on the wall.
+  static const meldAssist = 0.6;
+  final _rng = Random();
+
   Tile? drawTile() {
-    for (var i = deck.length - 1; i >= 0; i--) {
-      if (deck[i].suit != 'z') return deck.removeAt(i);
+    final held = <Tile>[];
+    for (final id in wall) {
+      final h = byId(id)?.tile;
+      if (h != null && h.suit != 'z') held.add(h);
     }
-    return null;
+    final suited = <int>[];
+    final helpful = <int>[];
+    for (var i = 0; i < deck.length; i++) {
+      final d = deck[i];
+      if (d.suit == 'z') continue;
+      suited.add(i);
+      if (held.any((h) => h.suit == d.suit && (h.val - d.val).abs() <= 2)) {
+        helpful.add(i);
+      }
+    }
+    if (helpful.isNotEmpty && _rng.nextDouble() < meldAssist) {
+      return deck.removeAt(helpful[_rng.nextInt(helpful.length)]);
+    }
+    // A random suited tile — not the last one in the deck, which is usually the
+    // tile just returned by an un-starred task coming straight back.
+    if (suited.isEmpty) return null;
+    return deck.removeAt(suited[_rng.nextInt(suited.length)]);
+  }
+
+  static const meldPoints = {'shang': 1, 'peng': 2, 'daai': 4, 'win': 8};
+
+  /// Score a meld the first time it forms. [ids] are its tasks. Returns false
+  /// if this exact meld was already scored, so callers only celebrate new ones.
+  bool awardMeld(String type, Iterable<int> ids) {
+    final key = '$type:${(ids.toList()..sort()).join(',')}';
+    // Forget melds whose tasks are gone or done: they can't re-form, and it
+    // keeps the list short.
+    final active = {for (final t in tasks) if (!t.done) t.id};
+    scoredMelds.removeWhere((k) =>
+        !k.split(':').last.split(',').every((s) => active.contains(int.tryParse(s))));
+    if (scoredMelds.contains(key)) return false;
+    scoredMelds.add(key);
+    score += meldPoints[type] ?? 0;
+    _changed();
+    return true;
   }
 
   Tile? drawDragon() {

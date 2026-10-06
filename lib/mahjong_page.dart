@@ -54,7 +54,6 @@ class _FocusWallState extends State<FocusWall>
   String? _badgeCn;
   String? _badgeEn;
   Color _badgeCol = _winCol;
-  String _lastSig = '';
   Timer? _hide;
 
   @override
@@ -111,11 +110,11 @@ class _FocusWallState extends State<FocusWall>
       };
 
   void _onStore() {
-    final ws = store.wallTasks();
-    final (type, _) = _detect(ws);
-    final sig = '${ws.map((t) => t.id).join('-')}:${type ?? ''}';
-    if (type != null && sig != _lastSig) _fire(type);
-    _lastSig = sig;
+    final (type, ids) = _detect(store.wallTasks());
+    // Celebrate (and score) a meld only the first time it forms. This used to
+    // key on the whole wall's order, so dragging any *other* tile looked like a
+    // new state and replayed the same 碰; reopening the wall replayed it too.
+    if (type != null && store.awardMeld(type, ids)) _fire(type);
     if (mounted) setState(() {});
   }
 
@@ -232,20 +231,39 @@ class _FocusWallState extends State<FocusWall>
 
   Widget _header() => Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 10, 6),
-        child: Row(children: [
-          Expanded(
-            child: Center(
-              child: Text('麻雀',
-                  style: GoogleFonts.notoSerifHk(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 30,
-                      color: C.creamTxt,
-                      shadows: const [
-                        Shadow(color: Color(0x66000000), offset: Offset(1, 2), blurRadius: 4)
-                      ])),
-            ),
-          ),
+        // Title stays centred; the score sits at the right edge over it.
+        child: Stack(alignment: Alignment.center, children: [
+          Text('麻雀',
+              style: GoogleFonts.notoSerifHk(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 30,
+                  color: C.creamTxt,
+                  shadows: const [
+                    Shadow(color: Color(0x66000000), offset: Offset(1, 2), blurRadius: 4)
+                  ])),
+          Align(alignment: Alignment.centerRight, child: _scorePill()),
         ]),
+      );
+
+  Widget _scorePill() => Tooltip(
+        message: '上 run +1 · 碰 triplet +2 · 大牌 dragons +4 · 食糊 full run +8',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .22),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: C.creamTxt.withValues(alpha: .25)),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('分',
+                style: GoogleFonts.notoSerifHk(
+                    fontWeight: FontWeight.w900, fontSize: 13, color: C.mustard)),
+            const SizedBox(width: 5),
+            Text('${store.score}',
+                style: GoogleFonts.spaceMono(
+                    fontWeight: FontWeight.w700, fontSize: 13, color: C.creamTxt)),
+          ]),
+        ),
       );
 
   Widget _empty() => Center(

@@ -160,8 +160,26 @@ class SubtaskSectionState extends State<SubtaskSection> {
             itemBuilder: (_, i) => _row(t, i, t.sub[i], movable),
           ),
         Row(children: [
-          const Icon(Icons.add, size: 16, color: C.greenD),
-          const SizedBox(width: 7),
+          // A real button now (it used to be decoration): adds what's typed,
+          // or puts the cursor in the field if it's still empty.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (_addCtl.text.trim().isEmpty) {
+                _addFocus.requestFocus();
+              } else {
+                _add();
+              }
+            },
+            child: const MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(0, 4, 3, 4),
+                child: Icon(Icons.add, size: 18, color: C.greenD),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
           Expanded(
             child: TextField(
               controller: _addCtl,
