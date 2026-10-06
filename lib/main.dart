@@ -9,6 +9,8 @@ import 'device.dart';
 import 'widgets/decor.dart';
 import 'widgets/subtasks.dart';
 import 'widgets/type.dart';
+import 'tracker/career_page.dart';
+import 'tracker/tracker_models.dart';
 import 'palette.dart';
 import 'labels.dart';
 import 'models.dart';
@@ -97,7 +99,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final _addCtl = TextEditingController();
   final _boardCtl = ScrollController();
   String _addGroup = store.groups.first.key;
-  String _mobileView = 'tasks'; // mobile bottom-nav: 'tasks' or 'focus'
+  String _mobileView = 'tasks'; // mobile bottom-nav: 'tasks', 'focus' or 'career'
+  String _wideSection = 'tasks'; // wide layout: 'tasks' or 'career' (Cadence only)
+
+  /// The Career tracker is Cadence's; Chronicle doesn't show it.
+  static const _hasCareer = !C.chronicle;
+
+  void _showCareer() => setState(() {
+        _wideSection = 'career';
+        _mobileView = 'career';
+      });
   DateTime? _addDate;
   TimeOfDay? _addTime; // optional time for the add bar's due date
   int? _editingTaskId;
@@ -252,10 +263,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _addGroup = store.groups.first.key;
           }
           if (wide) return _wideLayout();
-          // Mobile: tasks and the mahjong wall are separate bottom-nav pages.
-          return _mobileView == 'focus'
-              ? _focusPage()
-              : _stackedLayout(MediaQuery.of(context).size.width);
+          // Mobile: tasks, the mahjong wall and Career are bottom-nav pages.
+          if (_mobileView == 'focus') return _focusPage();
+          if (_hasCareer && _mobileView == 'career') return _careerPage();
+          return _stackedLayout(MediaQuery.of(context).size.width);
         },
       ),
     );
@@ -362,6 +373,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   /// Full-screen mahjong Focus wall — its own page on mobile (a bottom-nav tab).
+  /// Wide layout: switch the main area between the task board and Career.
+  Widget _sectionSwitch() {
+    Widget seg(String id, String zh, String en, IconData icon) {
+      final on = _wideSection == id;
+      return Hoverable(
+        onTap: () => setState(() => _wideSection = id),
+        borderRadius: BorderRadius.zero,
+        hoverColor: on ? const Color(0x26FFFFFF) : const Color(0x1F000000),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          color: on ? C.green : C.paper2,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 15, color: on ? C.creamTxt : C.greenD),
+            const SizedBox(width: 6),
+            Text(zh, style: serifHk(size: 12.5, color: on ? C.creamTxt : C.greenD)),
+            const SizedBox(width: 5),
+            Text(en,
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w700, color: on ? C.creamTxt : C.greenD)),
+          ]),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+          border: Border.all(color: C.green, width: 2), borderRadius: BorderRadius.circular(8)),
+      clipBehavior: Clip.antiAlias,
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        seg('tasks', '待辦', 'Tasks', Icons.check_box_outlined),
+        Container(width: 2, height: 28, color: C.green),
+        seg('career', '求職', 'Career', Icons.work_outline),
+      ]),
+    );
+  }
+
+  /// Mobile: the Career tracker as its own bottom-nav page.
+  Widget _careerPage() => Container(
+        color: C.paper2,
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+        child: const CareerPage(),
+      );
+
   Widget _focusPage() => Container(
         color: C.chronicle ? Colors.transparent : C.paper2,
         padding: EdgeInsets.fromLTRB(C.chronicle ? 52 : 10, 10, C.chronicle ? 52 : 10, 10),
@@ -414,6 +468,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Container(width: 1.5, height: 46, color: C.line),
             item('focus', L.navFocusZh, L.navFocusEn,
                 C.chronicle ? Icons.style_outlined : Icons.grid_view_rounded),
+            if (_hasCareer) ...[
+              Container(width: 1.5, height: 46, color: C.line),
+              item('career', '求職', 'CAREER', Icons.work_outline),
+            ],
           ]),
         ),
       ),
@@ -485,9 +543,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 8),
               ],
-              Align(alignment: Alignment.centerRight, child: _headerCollapseBar()),
+              Row(children: [
+                if (_hasCareer) _sectionSwitch(),
+                const Spacer(),
+                _headerCollapseBar(),
+              ]),
               const SizedBox(height: 12),
-              Expanded(child: _board()),
+              Expanded(
+                  child: _hasCareer && _wideSection == 'career'
+                      ? const CareerPage()
+                      : _board()),
             ]),
           ),
         ),
@@ -719,7 +784,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (store.viewMode == 'board') return const SizedBox.shrink();
     final soon =
         store.tasks.where((t) => !t.done && !t.daily && store.soon(t)).toList();
-    if (soon.isEmpty) return const SizedBox.shrink();
+    // Career items that can't wait: sign-ups/deadlines in 48h, follow-ups due.
+    final career = _hasCareer
+        ? CareerAgenda.build(store.applications, store.trackEvents)
+        : null;
+    final careerChips = <Widget>[
+      if (career != null) ...[
+        for (final u in career.urgent) _careerChip(u.title, u.detail),
+        for (final a in career.followUps)
+          _careerChip(a.company, a.nextAction ?? 'follow up'),
+      ],
+    ];
+    if (soon.isEmpty && careerChips.isEmpty) return const SizedBox.shrink();
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
@@ -744,10 +820,40 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 6, children: [
           for (final t in soon) _dueSoonChip(t),
+          ...careerChips,
         ]),
       ]),
     );
   }
+
+  /// A Career item in the due-soon banner; tapping it opens Career.
+  Widget _careerChip(String title, String detail) => Hoverable(
+        onTap: _showCareer,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: C.paper2,
+            border: Border.all(color: C.line),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.work_outline, size: 13, color: C.ink2),
+            const SizedBox(width: 5),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 150),
+              child: Text(title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600, color: C.ink)),
+            ),
+            const SizedBox(width: 6),
+            Text(detail,
+                style: mono(size: 11, color: C.red).copyWith(fontWeight: FontWeight.w700)),
+          ]),
+        ),
+      );
 
   // Tapping a due-soon chip jumps to that task (it only navigates — no edit).
   Widget _dueSoonChip(Task t) => Hoverable(

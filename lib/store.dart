@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'palette.dart';
 import 'models.dart';
+import 'tracker/tracker_models.dart';
 
 /// Reactive, persisted app state. Every mutation notifies listeners and saves.
 class CadenceStore extends ChangeNotifier {
@@ -19,6 +20,9 @@ class CadenceStore extends ChangeNotifier {
   // Melds already scored, as "type:id,id,id", so the same meld isn't scored
   // (or celebrated) again when other tiles move or the wall is reopened.
   List<String> scoredMelds = [];
+  // Career tracker (Cadence only in the UI; harmless in Chronicle's data).
+  List<Application> applications = [];
+  List<TrackEvent> trackEvents = [];
   int _dragCycle = 0;
   String viewMode = 'sections';
   String sortMode = 'manual'; // 'manual' or 'due' (sort each group by due date)
@@ -104,6 +108,8 @@ class CadenceStore extends ChangeNotifier {
         'streak': streak,
         'score': score,
         'scoredMelds': scoredMelds,
+        'apps': applications.map((a) => a.toJson()).toList(),
+        'events': trackEvents.map((e) => e.toJson()).toList(),
         'updatedAt': updatedAt,
         'wxPlace': weatherPlace,
         'wxLat': weatherLat,
@@ -138,9 +144,23 @@ class CadenceStore extends ChangeNotifier {
     wall = ((j['wall'] ?? []) as List).map((e) => e as int).toList();
     _uid = j['uid'] ?? 0;
     streak = j['streak'] ?? 0;
-    score = j['score'] ?? 0;
-    scoredMelds =
-        ((j['scoredMelds'] ?? []) as List).map((e) => e as String).toList();
+    // Fields added in later versions: a blob from an older build simply lacks
+    // them, and "missing" must not be read as "empty" — that would wipe them
+    // here and then sync the wipe everywhere.
+    if (j.containsKey('score')) score = (j['score'] as num?)?.toInt() ?? 0;
+    if (j['scoredMelds'] is List) {
+      scoredMelds = (j['scoredMelds'] as List).map((e) => e as String).toList();
+    }
+    if (j['apps'] is List) {
+      applications = (j['apps'] as List)
+          .map((e) => Application.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (j['events'] is List) {
+      trackEvents = (j['events'] as List)
+          .map((e) => TrackEvent.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
     viewMode = j['viewMode'] ?? viewMode;
     sortMode = j['sortMode'] ?? sortMode;
     filter = j['filter'] ?? filter;
@@ -194,6 +214,8 @@ class CadenceStore extends ChangeNotifier {
   void applyRemoteState(Map<String, dynamic> j, {bool merge = true}) {
     final localTasks = List<Task>.from(tasks);
     final localById = {for (final t in tasks) t.id: t};
+    final localApps = List<Application>.from(applications);
+    final localEvents = List<TrackEvent>.from(trackEvents);
     final localUid = _uid;
     final remoteTs = (j['updatedAt'] ?? 0) as int;
     applyState(j); // replaces tasks with the (newer) incoming blob
@@ -218,6 +240,13 @@ class CadenceStore extends ChangeNotifier {
           swapped = true;
         }
       }
+      // Applications and events follow exactly the same rules as tasks.
+      if (_mergeById(applications, localApps, remoteTs, (a) => a.id, (a) => a.uAt)) {
+        swapped = true;
+      }
+      if (_mergeById(trackEvents, localEvents, remoteTs, (e) => e.id, (e) => e.uAt)) {
+        swapped = true;
+      }
       // Never rewind the id counter below ids we just kept, or a new task could
       // reuse an existing id.
       if (localUid > _uid) _uid = localUid;
@@ -234,6 +263,30 @@ class CadenceStore extends ChangeNotifier {
     }
     save();
     notifyListeners();
+  }
+
+  /// The per-item merge used for tasks, for any list of items with an id and
+  /// an edit clock. [incoming] (already applied from the cloud) is updated in
+  /// place; returns whether anything local was kept.
+  static bool _mergeById<T>(List<T> incoming, List<T> local, int remoteTs,
+      int Function(T) id, int Function(T) uAt) {
+    var kept = false;
+    final localById = {for (final x in local) id(x): x};
+    for (var i = 0; i < incoming.length; i++) {
+      final l = localById[id(incoming[i])];
+      if (l != null && uAt(l) > uAt(incoming[i])) {
+        incoming[i] = l;
+        kept = true;
+      }
+    }
+    final ids = {for (final x in incoming) id(x)};
+    for (final l in local) {
+      if (!ids.contains(id(l)) && uAt(l) > remoteTs) {
+        incoming.add(l);
+        kept = true;
+      }
+    }
+    return kept;
   }
 
   Future<void> save() async {
@@ -764,6 +817,104 @@ class CadenceStore extends ChangeNotifier {
     if (v.isEmpty || v == s.title) return;
     s.title = v;
     _touch(t);
+  }
+
+  // ---------- career tracker ----------
+  int get _now => DateTime.now().millisecondsSinceEpoch;
+
+  /// Add [a] (id 0 = new) or record edits made to it in place.
+  void saveApplication(Application a) {
+    if (!applications.contains(a)) {
+      if (a.id == 0 || applications.any((x) => x.id == a.id)) a.id = _newId();
+      applications.add(a);
+    }
+    a.uAt = _now;
+    _changed();
+  }
+
+  void deleteApplication(Application a) {
+    applications.remove(a);
+    _changed();
+  }
+
+  /// Move along the pipeline. Marking it applied stamps today's date if none.
+  void setAppStatus(Application a, String status) {
+    a.status = status;
+    if (status == 'applied') a.dateApplied ??= isoDate(DateTime.now());
+    a.uAt = _now;
+    _changed();
+  }
+
+  void saveEvent(TrackEvent e) {
+    if (!trackEvents.contains(e)) {
+      if (e.id == 0 || trackEvents.any((x) => x.id == e.id)) e.id = _newId();
+      trackEvents.add(e);
+    }
+    e.uAt = _now;
+    _changed();
+  }
+
+  void deleteEvent(TrackEvent e) {
+    trackEvents.remove(e);
+    _changed();
+  }
+
+  void setEventStatus(TrackEvent e, String status) {
+    e.status = status;
+    e.uAt = _now;
+    _changed();
+  }
+
+  /// The starting list from trackers-plan.md, added once by the user.
+  void loadCareerStarter() {
+    final t = _now;
+    for (final a in starterApplications(_newId)) {
+      applications.add(a..uAt = t);
+    }
+    for (final e in starterEvents(_newId)) {
+      trackEvents.add(e..uAt = t);
+    }
+    _changed();
+  }
+
+  /// Import rows from a CSV: a row whose id matches an existing item updates
+  /// it (so export → edit in Excel → import works); anything else is added.
+  ({int added, int updated}) importApplications(List<Application> rows) {
+    var added = 0, updated = 0;
+    final t = _now;
+    for (final r in rows) {
+      final i = r.id == 0 ? -1 : applications.indexWhere((x) => x.id == r.id);
+      if (i >= 0) {
+        applications[i] = r..uAt = t;
+        updated++;
+      } else {
+        applications.add(r
+          ..id = _newId()
+          ..uAt = t);
+        added++;
+      }
+    }
+    if (added + updated > 0) _changed();
+    return (added: added, updated: updated);
+  }
+
+  ({int added, int updated}) importEvents(List<TrackEvent> rows) {
+    var added = 0, updated = 0;
+    final t = _now;
+    for (final r in rows) {
+      final i = r.id == 0 ? -1 : trackEvents.indexWhere((x) => x.id == r.id);
+      if (i >= 0) {
+        trackEvents[i] = r..uAt = t;
+        updated++;
+      } else {
+        trackEvents.add(r
+          ..id = _newId()
+          ..uAt = t);
+        added++;
+      }
+    }
+    if (added + updated > 0) _changed();
+    return (added: added, updated: updated);
   }
 
   // ---------- groups ----------
