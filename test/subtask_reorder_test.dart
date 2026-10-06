@@ -86,4 +86,21 @@ void main() {
     expect(editor.controller!.text, 'C',
         reason: 'the editor follows C, not whatever is now in its old row');
   });
+
+  testWidgets('the + button adds the typed subtask', (tester) async {
+    final t = taskWith(['A']);
+    store.tasks = [t];
+    await pump(tester, t);
+
+    // Empty field: the + just puts the cursor there, adding nothing.
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pump();
+    expect(order(t), ['A']);
+
+    await tester.enterText(find.byType(TextField), 'B');
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pump();
+    expect(order(t), ['A', 'B']);
+    expect(find.text('B'), findsOneWidget, reason: 'and the field is cleared');
+  });
 }
