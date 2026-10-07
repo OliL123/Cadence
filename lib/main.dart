@@ -439,9 +439,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       );
 
-  /// The next thing on the Career calendar, as one line for the masthead —
-  /// so it's visible from Tasks, the default page. Tapping it opens Career.
-  Widget? _careerNextLine() {
+  /// The next thing on the Career calendar, as a compact block that sits
+  /// beside the wordmark (in space it already has, so the masthead doesn't
+  /// grow) — visible from Tasks, the default page. Tapping it opens Career.
+  Widget? _careerNextBlock() {
     if (!_hasCareer) return null;
     final next = CareerSchedule.build(store.applications, store.trackEvents).next;
     if (next == null) return null;
@@ -449,32 +450,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final color = urgent ? C.red : C.greenD;
     return Hoverable(
       onTap: _showCareer,
-      borderRadius: BorderRadius.circular(5),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 340),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text('NEXT', style: mono(size: 9.5, color: color, w: FontWeight.w700).copyWith(letterSpacing: 1.4)),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text.rich(
-                TextSpan(children: [
-                  TextSpan(
-                      text: next.title,
-                      style: const TextStyle(fontWeight: FontWeight.w700, color: C.ink)),
-                  TextSpan(
-                      text: ' · ${next.detail} ${CadenceStore.whenLabel(next.when)}',
-                      style: TextStyle(color: color, fontWeight: FontWeight.w600)),
-                ]),
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 5, 6, 6),
+        decoration: BoxDecoration(
+          border: Border(left: BorderSide(color: color, width: 2.5)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('NEXT · 求職',
+                  style: mono(size: 9, color: color, w: FontWeight.w700).copyWith(letterSpacing: 1.2)),
+              Icon(Icons.chevron_right, size: 14, color: color),
+            ]),
+            const SizedBox(height: 2),
+            Text(next.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-            const SizedBox(width: 3),
-            Icon(Icons.chevron_right, size: 16, color: color),
-          ]),
+                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: C.ink)),
+            Text('${next.detail} ${CadenceStore.whenLabel(next.when)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: color)),
+          ],
         ),
       ),
     );
@@ -1861,7 +1861,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           style: mono(size: 9.5, color: C.red, w: FontWeight.w700)
                               .copyWith(letterSpacing: 1.6)),
                     ),
-                    ?_careerNextLine(),
                     // A Wrap (not Row) so APK + Sync flow to a new line on
                     // narrow screens instead of overflowing next to the chip.
                     Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -1872,7 +1871,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 16),
                 // scale-down so the title never overflows on narrow/fold screens
-                _flexIf(bounded, Align(
+                _flexIf(bounded, _withCareerNext(Align(
                   alignment: Alignment.centerLeft,
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
@@ -1894,12 +1893,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
-                )),
+                ))),
               ],
             ),
           )),
         ]),
       );
+
+  /// The wordmark with the Career NEXT block in the empty space to its right.
+  /// Only where there's room for both; on a phone the wordmark fills the
+  /// width, and the badge on the Career nav button flags what's urgent.
+  Widget _withCareerNext(Widget wordmark) => LayoutBuilder(builder: (_, c) {
+        final next = c.maxWidth >= 480 ? _careerNextBlock() : null;
+        if (next == null) return wordmark;
+        return Row(children: [
+          Expanded(flex: 3, child: wordmark),
+          const SizedBox(width: 14),
+          Flexible(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 250), child: next),
+            ),
+          ),
+        ]);
+      });
 
   // ---------------- sections ----------------
   List<Widget> _section(Group g) {
