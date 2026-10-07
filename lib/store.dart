@@ -77,6 +77,36 @@ class CadenceStore extends ChangeNotifier {
     purgeOldDone();
   }
 
+  /// Forget everything on this device and start fresh, as on a new install
+  /// (used on Sync sign-out — the data stays in the account). Clears this
+  /// device's saved copy too, so a reload can't bring it back.
+  Future<void> wipeDevice() async {
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_key);
+    groups = defaultGroups();
+    tasks = [];
+    wall = [];
+    deck = _buildDeck();
+    _uid = 0;
+    streak = 0;
+    score = 0;
+    scoredMelds = [];
+    _syncedScore = null;
+    applications = [];
+    trackEvents = [];
+    goals = [];
+    weatherPlace = 'Ann Arbor';
+    weatherLat = 42.28;
+    weatherLon = -83.74;
+    holidayCountries = ['US'];
+    gcalCalendars = [];
+    gcalCalsUpdatedAt = 0;
+    pendingMergePush = false;
+    _seed(); // sample tasks, clock 0 — any real data always wins over them
+    await save();
+    notifyListeners();
+  }
+
   /// How long a completed task lingers before it's auto-removed.
   static const doneKeep = Duration(days: 7);
 

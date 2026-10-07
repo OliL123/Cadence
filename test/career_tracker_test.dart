@@ -250,6 +250,23 @@ void main() {
     expect(safeWebLink(''), isNull);
   });
 
+  test('signing out wipes this device, including its saved copy', () async {
+    final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
+    s.loadCareerStarter();
+    s.saveGoal(Goal(id: 0, title: 'Apply to 40', target: 40));
+    s.score = 12;
+    await s.save();
+    await s.wipeDevice();
+    expect(s.applications, isEmpty);
+    expect(s.trackEvents, isEmpty);
+    expect(s.goals, isEmpty);
+    expect(s.score, 0);
+    expect(s.updatedAt, 0, reason: 'sample data must never beat real data');
+    final reloaded = CadenceStore();
+    await reloaded.load();
+    expect(reloaded.applications, isEmpty, reason: 'a reload must not bring it back');
+  });
+
   group('sync', () {
     test('a blob from an older build does not wipe career data or score', () {
       final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});

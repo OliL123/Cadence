@@ -305,6 +305,14 @@ class GCalService extends ChangeNotifier with WidgetsBindingObserver {
         await _call({'action': 'revoke'});
       } catch (_) {} // best effort; the local unlink below still happens
     }
+    await forgetOnDevice();
+  }
+
+  /// Forget the Google link on this device only (on Sync sign-out). Unlike
+  /// [disconnect] it leaves the account's server-held link alone, so your
+  /// other devices stay connected and signing back in here reconnects.
+  Future<void> forgetOnDevice() async {
+    _refreshTimer?.cancel();
     _serverLinked = false;
     _token = null;
     _tokenExp = null;

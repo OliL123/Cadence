@@ -1378,7 +1378,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ]),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
-                  onPressed: () => s.signOut(),
+                  onPressed: () => _confirmSignOut(ctx, s),
                   icon: const Icon(Icons.logout, size: 16),
                   label: const Text('Sign out'),
                   style: OutlinedButton.styleFrom(
@@ -1394,7 +1394,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 TextField(
                   controller: passCtl,
                   obscureText: true,
-                  decoration: _syncField('Password (6+ characters)'),
+                  decoration: _syncField('Password'),
+                  onSubmitted: (_) => s.signIn(emailCtl.text, passCtl.text),
                 ),
                 const SizedBox(height: 10),
                 if (s.message != null)
@@ -1405,10 +1406,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             fontSize: 12,
                             color: s.stage == SyncStage.error ? C.red : C.greenD)),
                   ),
-                FilledButton(
-                  onPressed: () => s.connect(emailCtl.text, passCtl.text),
-                  style: FilledButton.styleFrom(backgroundColor: C.green),
-                  child: const Text('Connect'),
+                Row(children: [
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => s.signIn(emailCtl.text, passCtl.text),
+                      style: FilledButton.styleFrom(backgroundColor: C.green),
+                      child: const Text('Sign in'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  TextButton(
+                    onPressed: () => s.createAccount(emailCtl.text, passCtl.text),
+                    style: TextButton.styleFrom(foregroundColor: C.greenD),
+                    child: const Text('Create account'),
+                  ),
+                ]),
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                      'New accounts need a password of ${SyncService.minPasswordLength}+ characters.',
+                      style: const TextStyle(fontSize: 11.5, color: C.ink3)),
                 ),
               ],
               const SizedBox(height: 6),
@@ -1417,6 +1434,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  /// Signing out clears this device, so say so first — and warn if there are
+  /// edits the cloud hasn't received (they're uploaded first if possible).
+  Future<void> _confirmSignOut(BuildContext ctx, SyncService s) async {
+    final unsynced = s.hasUnsyncedChanges;
+    final ok = await showDialog<bool>(
+      context: ctx,
+      builder: (d) => AlertDialog(
+        backgroundColor: C.paper2,
+        title: const Text('Sign out of this device?'),
+        content: Text(
+          'Your tasks and Career data will be removed from this browser. '
+          'They stay in your account — sign in again to bring them back.'
+          '${unsynced ? '\n\nSome recent changes haven\'t synced yet. Cadence will try to '
+              'upload them first; if you\'re offline they\'ll be lost.' : ''}',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(d, true),
+            style: FilledButton.styleFrom(backgroundColor: C.red),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await s.signOut();
   }
 
   InputDecoration _syncField(String hint) => InputDecoration(
