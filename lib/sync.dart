@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'calendar/gcal.dart';
 import 'device.dart';
 import 'store.dart';
 
@@ -87,47 +88,80 @@ class SyncService extends ChangeNotifier {
   }
 
   // ---------- auth ----------
-  /// One button for both cases: signs in if the account exists, otherwise
-  /// creates it. Uses email + password (no email delivery needed).
-  Future<void> connect(String email, String password) async {
+  /// New accounts need a longer password than Supabase's default minimum.
+  static const minPasswordLength = 10;
+
+  void _fail(String msg) {
+    stage = SyncStage.error;
+    message = msg;
+    notifyListeners();
+  }
+
+  /// Sign in to an existing account (email + password; no email delivery).
+  /// Signing in never creates an account — a mistyped email used to quietly
+  /// make a new, empty one — and a failure doesn't say whether the email is
+  /// registered.
+  Future<void> signIn(String email, String password) async {
     final e = email.trim();
-    final p = password.trim();
-    if (e.isEmpty || p.length < 6) {
-      stage = SyncStage.error;
-      message = 'Enter an email and a password (6+ characters).';
-      notifyListeners();
-      return;
+    if (e.isEmpty || password.isEmpty) return _fail('Enter your email and password.');
+    stage = SyncStage.syncing;
+    message = null;
+    notifyListeners();
+    try {
+      await _sb.auth.signInWithPassword(email: e, password: password);
+      // _onSignedIn runs via the auth-state listener.
+    } on AuthException {
+      _fail('Email or password is incorrect.');
+    } catch (_) {
+      _fail('Couldn\'t reach the sync server — check your connection.');
+    }
+  }
+
+  /// Create a new account — a separate, deliberate step from signing in.
+  Future<void> createAccount(String email, String password) async {
+    final e = email.trim();
+    if (e.isEmpty || !e.contains('@')) return _fail('Enter a valid email.');
+    if (password.length < minPasswordLength) {
+      return _fail('Use a password of at least $minPasswordLength characters.');
     }
     stage = SyncStage.syncing;
     message = null;
     notifyListeners();
     try {
-      // Existing account -> sign in.
-      await _sb.auth.signInWithPassword(email: e, password: p);
-      // _onSignedIn runs via the auth-state listener.
-    } on AuthException catch (signInErr) {
-      // Might be a new account -> try to create it.
-      try {
-        final res = await _sb.auth.signUp(email: e, password: p);
-        if (res.session == null) {
-          stage = SyncStage.error;
-          message =
-              'Turn off "Confirm email" in Supabase (Auth → Providers → Email), then try again.';
-          notifyListeners();
-        }
-        // else: signed in, listener handles it.
-      } on AuthException catch (signUpErr) {
-        stage = SyncStage.error;
-        message = signUpErr.message.contains('registered')
-            ? 'Wrong password for this email.'
-            : signInErr.message;
-        notifyListeners();
+      final res = await _sb.auth.signUp(email: e, password: password);
+      if (res.session == null) {
+        _fail('Account created, but it needs email confirmation before it can sign in.');
       }
+      // else: signed in, the listener handles it.
+    } on AuthException catch (err) {
+      final m = err.message.toLowerCase();
+      _fail(m.contains('not allowed') || m.contains('disabled')
+          ? 'New accounts are closed on this app.'
+          : m.contains('password')
+              ? err.message
+              : 'Couldn\'t create that account. If you already have one, sign in instead.');
+    } catch (_) {
+      _fail('Couldn\'t reach the sync server — check your connection.');
     }
   }
 
+  /// Local edits the cloud hasn't received yet (e.g. made while offline).
+  bool get hasUnsyncedChanges =>
+      isSignedIn && jsonEncode(store.exportState()) != _lastSyncedJson;
+
+  /// Sign out and remove your data from this device. It stays in your
+  /// account; signing in again (here or anywhere) brings it back. Leaving it
+  /// would show your tasks and Career to the next person using this browser.
+  /// Pending edits are uploaded first so nothing is lost.
   Future<void> signOut() async {
+    _pushTimer?.cancel();
+    if (isSignedIn) await _push();
+    _teardown();
     await _sb.auth.signOut();
+    await store.wipeDevice();
+    await GCalService.instance.forgetOnDevice();
+    message = null;
+    notifyListeners();
   }
 
   // ---------- sync ----------
