@@ -313,7 +313,8 @@ class _AppFormState extends State<_AppForm> {
       ..contact = _v(_contact)
       ..nextAction = _v(_next)
       ..nextActionDate = d.nextActionDate
-      ..notes = _v(_notes);
+      ..notes = _v(_notes)
+      ..origin = d.origin;
     // Marking it applied without a date: assume today.
     if (t.status != 'to-apply' && t.dateApplied == null) {
       t.dateApplied = isoDate(DateTime.now());
@@ -372,6 +373,7 @@ class _AppFormState extends State<_AppForm> {
         ),
         _text(_contact, 'Contact', hint: 'Recruiter / referral name + email'),
         _text(_notes, 'Notes', maxLines: 5),
+        _originDrop(d.from, (v) => d.origin = v),
       ],
     );
   }
@@ -454,7 +456,8 @@ class _EventFormState extends State<_EventForm> {
       ..status = d.status
       ..prep = _v(_prep)
       ..outcome = _v(_outcome)
-      ..relatedCompany = _v(_company);
+      ..relatedCompany = _v(_company)
+      ..origin = d.origin;
     store.saveEvent(t);
     Navigator.pop(context);
   }
@@ -500,7 +503,115 @@ class _EventFormState extends State<_EventForm> {
         _text(_link, 'Link', kb: TextInputType.url),
         _text(_prep, 'Prep — what to do beforehand', maxLines: 4),
         _text(_outcome, 'Outcome — who you met, what came of it', maxLines: 4),
+        _originDrop(d.from, (v) => d.origin = v),
       ],
     );
   }
+}
+
+/// Where an item came from (you, a Cadence suggestion, an import, email).
+/// "You" is stored as no origin, like every item made before this existed.
+Widget _originDrop(String value, ValueChanged<String?> onChanged) => _drop(
+    'Added via', value, origins, (v) => onChanged(v == 'you' ? null : v),
+    labels: originLabel);
+
+// ---------------- goal ----------------
+
+Future<void> showGoalForm(BuildContext context, {Goal? existing}) =>
+    showDialog(context: context, builder: (_) => _GoalForm(existing: existing));
+
+class _GoalForm extends StatefulWidget {
+  final Goal? existing;
+  const _GoalForm({this.existing});
+  @override
+  State<_GoalForm> createState() => _GoalFormState();
+}
+
+class _GoalFormState extends State<_GoalForm> {
+  late final Goal d;
+  late final _title = TextEditingController(text: d.title);
+  late final _target = TextEditingController(text: '${d.target}');
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    d = e == null
+        ? Goal(id: 0, title: '', target: 10, metric: 'applied', since: isoDate(DateTime.now()))
+        : Goal.fromJson(e.toJson());
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _target.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final target = int.tryParse(_target.text.trim());
+    if (_title.text.trim().isEmpty) {
+      setState(() => _error = 'Give the goal a name');
+      return;
+    }
+    if (target == null || target < 1) {
+      setState(() => _error = 'Target must be a whole number, 1 or more');
+      return;
+    }
+    final t = widget.existing ?? Goal(id: 0, title: '');
+    t
+      ..title = _title.text.trim()
+      ..target = target
+      ..metric = d.metric
+      ..since = d.since
+      ..due = d.due;
+    store.saveGoal(t);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = widget.existing;
+    return _formShell(
+      context,
+      title: e == null ? 'New goal' : e.title,
+      onSave: _save,
+      onDelete: e == null
+          ? null
+          : () async {
+              if (await _confirmDelete(context, 'this goal')) {
+                store.deleteGoal(e);
+                if (context.mounted) Navigator.pop(context);
+              }
+            },
+      fields: [
+        if (_error != null)
+          Align(
+              alignment: Alignment.centerLeft,
+              child: Text(_error!, style: const TextStyle(color: C.red, fontSize: 13))),
+        _pair(_text(_title, 'Goal *', hint: 'Apply to 40 internships'),
+            _text(_target, 'Target *', kb: TextInputType.number)),
+        _drop('What counts', d.metric, goalMetrics, (v) => setState(() => d.metric = v),
+            labels: goalMetricLabel),
+        if (d.metric == 'manual')
+          const _Hint('You tap + on the goal each time you make progress.'),
+        _pair(
+          WhenField(label: 'Count from (blank = all time)', initial: d.since,
+              onChanged: (v) => d.since = v),
+          WhenField(label: 'Reach it by', initial: d.due, onChanged: (v) => d.due = v),
+        ),
+      ],
+    );
+  }
+}
+
+class _Hint extends StatelessWidget {
+  final String text;
+  const _Hint(this.text);
+  @override
+  Widget build(BuildContext context) => Align(
+        alignment: Alignment.centerLeft,
+        child: Text(text, style: const TextStyle(fontSize: 12.5, color: C.ink3)),
+      );
 }

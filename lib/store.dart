@@ -26,6 +26,7 @@ class CadenceStore extends ChangeNotifier {
   // Career tracker (Cadence only in the UI; harmless in Chronicle's data).
   List<Application> applications = [];
   List<TrackEvent> trackEvents = [];
+  List<Goal> goals = [];
   int _dragCycle = 0;
   String viewMode = 'sections';
   String sortMode = 'manual'; // 'manual' or 'due' (sort each group by due date)
@@ -113,6 +114,7 @@ class CadenceStore extends ChangeNotifier {
         'scoredMelds': scoredMelds,
         'apps': applications.map((a) => a.toJson()).toList(),
         'events': trackEvents.map((e) => e.toJson()).toList(),
+        'goals': goals.map((g) => g.toJson()).toList(),
         'updatedAt': updatedAt,
         'wxPlace': weatherPlace,
         'wxLat': weatherLat,
@@ -163,6 +165,11 @@ class CadenceStore extends ChangeNotifier {
     if (j['events'] is List) {
       trackEvents = (j['events'] as List)
           .map((e) => TrackEvent.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    if (j['goals'] is List) {
+      goals = (j['goals'] as List)
+          .map((e) => Goal.fromJson(e as Map<String, dynamic>))
           .toList();
     }
     viewMode = j['viewMode'] ?? viewMode;
@@ -221,6 +228,7 @@ class CadenceStore extends ChangeNotifier {
     final localById = {for (final t in tasks) t.id: t};
     final localApps = List<Application>.from(applications);
     final localEvents = List<TrackEvent>.from(trackEvents);
+    final localGoals = List<Goal>.from(goals);
     final localUid = _uid;
     final localScore = score;
     final localSynced = _syncedScore;
@@ -273,6 +281,9 @@ class CadenceStore extends ChangeNotifier {
         swapped = true;
       }
       if (_mergeById(trackEvents, localEvents, remoteTs, (e) => e.id, (e) => e.uAt)) {
+        swapped = true;
+      }
+      if (_mergeById(goals, localGoals, remoteTs, (g) => g.id, (g) => g.uAt)) {
         swapped = true;
       }
       // Never rewind the id counter below ids we just kept, or a new task could
@@ -905,6 +916,28 @@ class CadenceStore extends ChangeNotifier {
     _changed();
   }
 
+  /// Add [g] (id 0 = new) or record edits made to it in place.
+  void saveGoal(Goal g) {
+    if (!goals.contains(g)) {
+      if (g.id == 0 || goals.any((x) => x.id == g.id)) g.id = _newId();
+      goals.add(g);
+    }
+    g.uAt = _now;
+    _changed();
+  }
+
+  void deleteGoal(Goal g) {
+    goals.remove(g);
+    _changed();
+  }
+
+  /// Nudge a manual goal's counter by [by] (never below zero).
+  void bumpGoal(Goal g, int by) {
+    g.count = max(0, g.count + by);
+    g.uAt = _now;
+    _changed();
+  }
+
   /// The starting list from trackers-plan.md, added once by the user.
   void loadCareerStarter() {
     final t = _now;
@@ -925,11 +958,15 @@ class CadenceStore extends ChangeNotifier {
     for (final r in rows) {
       final i = r.id == 0 ? -1 : applications.indexWhere((x) => x.id == r.id);
       if (i >= 0) {
-        applications[i] = r..uAt = t;
+        // A sheet without an origin column keeps the item's own.
+        applications[i] = r
+          ..origin ??= applications[i].origin
+          ..uAt = t;
         updated++;
       } else {
         applications.add(r
           ..id = _newId()
+          ..origin ??= 'import'
           ..uAt = t);
         added++;
       }
@@ -944,11 +981,14 @@ class CadenceStore extends ChangeNotifier {
     for (final r in rows) {
       final i = r.id == 0 ? -1 : trackEvents.indexWhere((x) => x.id == r.id);
       if (i >= 0) {
-        trackEvents[i] = r..uAt = t;
+        trackEvents[i] = r
+          ..origin ??= trackEvents[i].origin
+          ..uAt = t;
         updated++;
       } else {
         trackEvents.add(r
           ..id = _newId()
+          ..origin ??= 'import'
           ..uAt = t);
         added++;
       }

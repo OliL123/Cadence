@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'device.dart';
 import 'widgets/decor.dart';
 import 'widgets/subtasks.dart';
+import 'widgets/tip_card.dart';
 import 'widgets/type.dart';
 import 'tracker/career_page.dart';
 import 'tracker/tracker_models.dart';
@@ -279,7 +280,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: Stack(children: [Positioned.fill(child: content), const ChronColumns()]),
             )
           : content,
-      bottomNavigationBar: wide ? null : _mobileNav(),
+      // Rebuilt with the store so the Career badge stays current.
+      bottomNavigationBar: wide
+          ? null
+          : ListenableBuilder(listenable: store, builder: (context, _) => _mobileNav()),
     );
   }
 
@@ -375,7 +379,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// Full-screen mahjong Focus wall — its own page on mobile (a bottom-nav tab).
   /// Wide layout: switch the main area between the task board and Career.
   Widget _sectionSwitch() {
-    Widget seg(String id, String zh, String en, IconData icon) {
+    Widget seg(String id, String zh, String en, IconData icon, {int badge = 0}) {
       final on = _wideSection == id;
       return Expanded(
         child: Hoverable(
@@ -393,6 +397,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               Text(en,
                   style: TextStyle(
                       fontSize: 13, fontWeight: FontWeight.w700, color: on ? C.creamTxt : C.greenD)),
+              if (badge > 0) ...[
+                const SizedBox(width: 7),
+                _countBadge(badge),
+              ],
             ]),
           ),
         ),
@@ -406,8 +414,69 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       child: Row(children: [
         seg('tasks', '待辦', 'Tasks', Icons.check_box_outlined),
         Container(width: 2, height: 34, color: C.green),
-        seg('career', '求職', 'Career', Icons.work_outline),
+        seg('career', '求職', 'Career', Icons.work_outline, badge: _careerAlertCount()),
       ]),
+    );
+  }
+
+  /// Career items that need you soon — the same ones DUE SOON shows: sign-ups
+  /// and deadlines in the next 48 hours, plus follow-ups due.
+  int _careerAlertCount() {
+    if (!_hasCareer) return 0;
+    final a = CareerAgenda.build(store.applications, store.trackEvents);
+    return a.urgentCompact.length + a.followUps.length;
+  }
+
+  Widget _countBadge(int n) => Tooltip(
+        message: '$n career item${n == 1 ? '' : 's'} need${n == 1 ? 's' : ''} you soon',
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 18),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+          decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(9)),
+          child: Text('$n',
+              textAlign: TextAlign.center,
+              style: mono(size: 10, color: C.creamTxt, w: FontWeight.w700)),
+        ),
+      );
+
+  /// The next thing on the Career calendar, as one line for the masthead —
+  /// so it's visible from Tasks, the default page. Tapping it opens Career.
+  Widget? _careerNextLine() {
+    if (!_hasCareer) return null;
+    final next = CareerSchedule.build(store.applications, store.trackEvents).next;
+    if (next == null) return null;
+    final urgent = next.when.isBefore(DateTime.now().add(const Duration(hours: 48)));
+    final color = urgent ? C.red : C.greenD;
+    return Hoverable(
+      onTap: _showCareer,
+      borderRadius: BorderRadius.circular(5),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 340),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('NEXT', style: mono(size: 9.5, color: color, w: FontWeight.w700).copyWith(letterSpacing: 1.4)),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text.rich(
+                TextSpan(children: [
+                  TextSpan(
+                      text: next.title,
+                      style: const TextStyle(fontWeight: FontWeight.w700, color: C.ink)),
+                  TextSpan(
+                      text: ' · ${next.detail} ${CadenceStore.whenLabel(next.when)}',
+                      style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+                ]),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+            const SizedBox(width: 3),
+            Icon(Icons.chevron_right, size: 16, color: color),
+          ]),
+        ),
+      ),
     );
   }
 
@@ -435,7 +504,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// Bottom nav to switch between the tasks page and the mahjong page (mobile).
   Widget _mobileNav() {
-    Widget item(String id, String zh, String en, IconData icon) {
+    Widget item(String id, String zh, String en, IconData icon, {int badge = 0}) {
       final on = _mobileView == id;
       return Expanded(
         child: InkWell(
@@ -444,7 +513,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             padding: const EdgeInsets.symmetric(vertical: 8),
             color: on ? C.green : C.paper,
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(icon, size: 20, color: on ? C.creamTxt : C.ink3),
+              Badge(
+                isLabelVisible: badge > 0,
+                label: Text('$badge'),
+                backgroundColor: C.red,
+                textColor: C.creamTxt,
+                child: Icon(icon, size: 20, color: on ? C.creamTxt : C.ink3),
+              ),
               const SizedBox(height: 3),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 Text(zh, style: serifHk(size: 13, color: on ? C.creamTxt : C.ink2)),
@@ -472,7 +547,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 C.chronicle ? Icons.style_outlined : Icons.grid_view_rounded),
             if (_hasCareer) ...[
               Container(width: 1.5, height: 46, color: C.line),
-              item('career', '求職', 'CAREER', Icons.work_outline),
+              item('career', '求職', 'CAREER', Icons.work_outline, badge: _careerAlertCount()),
             ],
           ]),
         ),
@@ -538,7 +613,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 SizedBox(
                   height: 176,
                   child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    Expanded(child: _masthead()),
+                    Expanded(child: _masthead(bounded: true)),
                     const SizedBox(width: 14),
                     const SizedBox(width: 470, child: TodayCard()),
                   ]),
@@ -817,11 +892,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         chips.add((
           at,
           _careerChip(a.company, a.nextAction ?? 'follow up',
-              tip: [
-                '${a.company}${a.role.isEmpty ? '' : ' — ${a.role}'}',
-                'Follow up ${CadenceStore.whenLabel(at)}: ${a.nextAction ?? '—'}',
-                if (a.contact != null) 'Contact: ${a.contact}',
-              ].join('\n')),
+              tip: TipCard(
+                kicker: 'CAREER · FOLLOW-UP',
+                accent: C.mustard,
+                title: a.role.isEmpty ? a.company : '${a.company} — ${a.role}',
+                rows: [
+                  ('Next step', a.nextAction ?? 'Follow up'),
+                  ('When', '${CadenceStore.whenLabel(at)} · ${fmtWhen(a.nextActionDate)}'),
+                  ('Contact', a.contact ?? ''),
+                  ('Status', appStatusLabel[a.status] ?? a.status),
+                ],
+              )),
         ));
       }
     }
@@ -856,41 +937,53 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  /// Hover text for a career item: what it is, when, and the notes you'd
-  /// otherwise open Career to read.
-  String _agendaTip(AgendaItem u) {
-    final e = u.event, a = u.app;
-    return [
-      u.title,
-      '${u.detail} · ${fmtWhen(isoDateTime(u.when))}',
-      if (e?.location != null) e!.location!,
-      if (e?.prep != null) e!.prep!,
-      if (a?.term != null) a!.term!,
-      if (a?.notes != null) a!.notes!,
-    ].join('\n');
+  /// "Thu 8 Oct · 14:30", or just the day when [at] is a date-only moment
+  /// (stored as 00:00 or 23:59).
+  static String _fullWhen(DateTime at) {
+    final dateOnly = (at.hour == 0 && at.minute == 0) || (at.hour == 23 && at.minute == 59);
+    return fmtWhen(dateOnly ? isoDate(at) : isoDateTime(at));
   }
 
-  /// Hover text for a task chip: the full title, its group, when, and progress.
-  String _taskTip(Task t) {
+  /// Hover card for a career item: what it is, when, and the notes you'd
+  /// otherwise open Career to read.
+  TipCard _agendaTip(AgendaItem u) {
+    final e = u.event, a = u.app;
+    final from = e?.from ?? a?.from ?? 'you';
+    return TipCard(
+      kicker: 'CAREER · ${u.detail.toUpperCase()}',
+      accent: u.detail.startsWith('sign-up') ? C.red : C.mustard,
+      title: u.title,
+      rows: [
+        ('When', _fullWhen(u.when)),
+        if (e != null) ('Event', '${e.type}${e.start == null ? '' : ' · ${fmtWhen(e.start)}'}'),
+        ('Where', e?.location ?? a?.location ?? ''),
+        ('Prep', e?.prep ?? ''),
+        ('Term', a?.term ?? ''),
+        ('Notes', a?.notes ?? ''),
+        if (from != 'you') ('Via', originLabel[from] ?? from),
+      ],
+    );
+  }
+
+  /// Hover card for a task chip: the full title, its group, when, progress.
+  TipCard _taskTip(Task t) {
     final g = store.groups.where((g) => g.key == t.group).firstOrNull;
     final done = t.sub.where((s) => s.done).length;
-    return [
-      t.title,
-      [if (g != null) g.name, 'due ${store.dueLabel(t)}'].join(' · '),
-      if (t.sub.isNotEmpty) '$done/${t.sub.length} subtasks done',
-    ].join('\n');
+    return TipCard(
+      kicker: (g?.name ?? 'TASK').toUpperCase(),
+      accent: g?.c ?? C.ink3,
+      title: t.title,
+      rows: [
+        ('Due', '${store.dueLabel(t)} · ${_fullWhen(store.dueAt(t)!)}'),
+        if (t.sub.isNotEmpty) ('Subtasks', '$done of ${t.sub.length} done'),
+        if (t.pri) ('Flag', 'Priority'),
+      ],
+    );
   }
 
-  /// Shows [message] on hover (desktop/web) or long-press (phone).
-  Widget _tip(String message, Widget child) => Tooltip(
-        message: message,
-        waitDuration: const Duration(milliseconds: 350),
-        child: child,
-      );
-
   /// A Career item in the due-soon banner; tapping it opens Career.
-  Widget _careerChip(String title, String detail, {required String tip}) =>
-      _tip(tip, Hoverable(
+  Widget _careerChip(String title, String detail, {required TipCard tip}) =>
+      tip.wrap(Hoverable(
         onTap: _showCareer,
         borderRadius: BorderRadius.circular(6),
         child: Container(
@@ -919,7 +1012,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ));
 
   // Tapping a due-soon chip jumps to that task (it only navigates — no edit).
-  Widget _dueSoonChip(Task t) => _tip(_taskTip(t), Hoverable(
+  Widget _dueSoonChip(Task t) => _taskTip(t).wrap(Hoverable(
         onTap: () => _openTask(t.id, keepView: true),
         borderRadius: BorderRadius.circular(6),
         child: Container(
@@ -1663,7 +1756,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // ---------------- masthead ----------------
-  Widget _masthead() => C.chronicle ? _chronicleMasthead() : _cadenceMasthead();
+  /// [bounded]: the masthead has a fixed height (the wide layout), so the
+  /// wordmark shrinks to fit if the top row wraps (e.g. a long NEXT line).
+  Widget _masthead({bool bounded = false}) =>
+      C.chronicle ? _chronicleMasthead() : _cadenceMasthead(bounded: bounded);
 
   // The Greek masthead: a painting chosen by the time of day, the CHRONICLE
   // wordmark, and the same made-for / APK / Sync controls over a dark veil.
@@ -1731,12 +1827,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const _mons = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   String _chronDate(DateTime d) => '${_wdays[d.weekday - 1]}, ${d.day} ${_mons[d.month - 1]}';
 
-  Widget _cadenceMasthead() => _enamel(
+  /// [child] as-is, or — when [on] — flexing to fill ([expand]) or fit the
+  /// space left in a bounded Column.
+  static Widget _flexIf(bool on, Widget child, {bool expand = false}) => !on
+      ? child
+      : expand
+          ? Expanded(child: child)
+          : Flexible(child: child);
+
+  Widget _cadenceMasthead({bool bounded = false}) => _enamel(
         edge: C.red,
         padding: EdgeInsets.zero,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const LatticeStrip(),
-          Padding(
+          _flexIf(bounded, expand: true, Padding(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1757,6 +1861,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           style: mono(size: 9.5, color: C.red, w: FontWeight.w700)
                               .copyWith(letterSpacing: 1.6)),
                     ),
+                    ?_careerNextLine(),
                     // A Wrap (not Row) so APK + Sync flow to a new line on
                     // narrow screens instead of overflowing next to the chip.
                     Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -1767,7 +1872,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 16),
                 // scale-down so the title never overflows on narrow/fold screens
-                Align(
+                _flexIf(bounded, Align(
                   alignment: Alignment.centerLeft,
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
@@ -1789,10 +1894,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
-                ),
+                )),
               ],
             ),
-          ),
+          )),
         ]),
       );
 

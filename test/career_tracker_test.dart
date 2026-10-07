@@ -136,6 +136,107 @@ void main() {
     expect(s.applications.length, 6);
   });
 
+  group('schedule', () {
+    final now = DateTime(2026, 10, 7, 13);
+
+    test('lists everything coming up, months out, soonest first', () {
+      final s = CareerSchedule.build(starterApplications(id), starterEvents(id), now: now);
+      final names = s.upcoming.map((u) => '${u.title}|${u.detail}').toList();
+      expect(names.first, 'Virtual Engineering Career Fair|sign-up opens');
+      expect(names, contains('HackRPI 2026|hackathon'));
+      expect(names, contains('SpartaHack 12|hackathon'), reason: 'February is still shown');
+      expect(names, contains('Riot application closes|deadline'));
+      expect(s.upcoming.map((u) => u.when).toList(),
+          orderedEquals([...s.upcoming.map((u) => u.when)]..sort()));
+      expect(s.tbd.map((e) => e.name), contains('Epic Games recruiter coaching session'));
+      expect(s.next!.detail, 'sign-up opens');
+    });
+
+    test('running events are "now", past ones are gone', () {
+      final s = CareerSchedule.build([], starterEvents(id), now: DateTime(2026, 10, 12, 9));
+      expect(s.running.map((u) => u.title), contains('MLH Global Hack Week: Hacktoberfest'));
+      expect(s.upcoming.map((u) => u.title), isNot(contains('Virtual Engineering Career Fair')));
+    });
+
+    test('one sign-up line per event, none once signed up', () {
+      final evs = starterEvents(id);
+      final fair = evs.firstWhere((e) => e.name == 'Virtual Engineering Career Fair');
+      List<String> lines() => CareerSchedule.build([], evs, now: now)
+          .upcoming
+          .where((u) => u.title == fair.name && u.detail.startsWith('sign-up'))
+          .map((u) => u.detail)
+          .toList();
+      expect(lines(), ['sign-up opens']);
+      fair.status = 'signed-up';
+      expect(lines(), isEmpty);
+    });
+  });
+
+  group('goals', () {
+    test('counted goals count from their start date', () {
+      final apps = [
+        Application(id: 1, company: 'a', status: 'applied', dateApplied: '2026-09-01'),
+        Application(id: 2, company: 'b', status: 'applied', dateApplied: '2026-10-02'),
+        Application(id: 3, company: 'c', status: 'interview', dateApplied: '2026-10-03'),
+        Application(id: 4, company: 'd', status: 'to-apply'),
+      ];
+      final evs = [
+        TrackEvent(id: 5, name: 'jam', type: 'game-jam', start: '2026-10-05', status: 'attended'),
+        TrackEvent(id: 6, name: 'fair', type: 'career-fair', start: '2026-10-06', status: 'attended'),
+        TrackEvent(id: 7, name: 'hack', type: 'hackathon', start: '2026-11-07', status: 'signed-up'),
+      ];
+      int p(String metric, {String? since}) =>
+          Goal(id: 9, title: 'g', metric: metric, since: since).progress(apps, evs);
+      expect(p('applied'), 3);
+      expect(p('applied', since: '2026-10-01'), 2);
+      expect(p('interviews'), 1);
+      expect(p('attended'), 2);
+      expect(p('hackathons'), 1);
+      expect((Goal(id: 9, title: 'g', count: 4)).progress(apps, evs), 4);
+    });
+
+    test('goals sync and merge like applications', () {
+      final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
+      final g = Goal(id: 0, title: 'Apply to 40', target: 40, metric: 'applied');
+      s.saveGoal(g);
+      final cloud = s.exportState();
+      s.bumpGoal(g, 1); // manual counter edit after the snapshot
+      s.applyRemoteState({...cloud, 'updatedAt': g.uAt + 1});
+      expect(s.goals.single.count, 1, reason: 'the newer local edit is kept');
+      final again = CadenceStore()..applyState(s.exportState());
+      expect(again.goals.single.title, 'Apply to 40');
+    });
+
+    test('a manual counter never goes below zero', () {
+      final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
+      final g = Goal(id: 0, title: 'x');
+      s.saveGoal(g);
+      s.bumpGoal(g, -1);
+      expect(g.count, 0);
+    });
+  });
+
+  group('origin', () {
+    test('new imports are marked imported; updates keep their origin', () {
+      final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
+      s.loadCareerStarter();
+      final riot = s.applications.firstWhere((a) => a.company == 'Riot Games');
+      expect(riot.from, 'you');
+      // A sheet exported before origins existed: no origin column.
+      final rows = parseCsv('id,company,status\n${riot.id},Riot Games,oa\n,Valve,to-apply\n');
+      s.importApplications(applicationsFromCsv(rows));
+      expect(s.applications.firstWhere((a) => a.company == 'Riot Games').from, 'you');
+      expect(s.applications.firstWhere((a) => a.company == 'Valve').from, 'import');
+    });
+
+    test('origin round-trips through CSV and unknown values mean "you"', () {
+      final e = TrackEvent(id: 3, name: 'From mail', origin: 'email');
+      final back = eventsFromCsv(parseCsv(eventsToCsv([e]))).single;
+      expect(back.from, 'email');
+      expect(TrackEvent.fromJson({'name': 'x', 'origin': 'martians'}).from, 'you');
+    });
+  });
+
   group('sync', () {
     test('a blob from an older build does not wipe career data or score', () {
       final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});

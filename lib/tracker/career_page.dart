@@ -1,5 +1,5 @@
-// The Career section: a "what should I do today?" screen, the applications
-// pipeline, and events — built from trackers-plan.md.
+// The Career section: an overview (the whole schedule beside goals and
+// metrics), the applications pipeline, and events — built from trackers-plan.md.
 import 'package:flutter/material.dart';
 
 import '../palette.dart';
@@ -49,7 +49,8 @@ class CareerPage extends StatefulWidget {
 }
 
 class _CareerPageState extends State<CareerPage> {
-  String _tab = 'today'; // today | apps | events
+  String _tab = 'overview'; // overview | apps | events
+  String _narrowPane = 'schedule'; // overview on a narrow screen: schedule | goals
   String? _fTrack, _fStatus, _fSponsor;
 
   /// For the tab widgets, which hold no state of their own.
@@ -117,6 +118,14 @@ class _CareerPageState extends State<CareerPage> {
                   showEventForm(context);
                 },
               ),
+              ListTile(
+                leading: const Icon(Icons.flag_outlined),
+                title: const Text('Goal'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  showGoalForm(context);
+                },
+              ),
             ]),
           ),
         );
@@ -141,7 +150,7 @@ class _CareerPageState extends State<CareerPage> {
             child: switch (_tab) {
               'apps' => _AppsTab(this),
               'events' => _EventsTab(this),
-              _ => _TodayTab(this),
+              _ => _OverviewTab(this),
             },
           ),
         ]),
@@ -170,7 +179,7 @@ class _CareerPageState extends State<CareerPage> {
           border: Border.all(color: C.green, width: 2), borderRadius: BorderRadius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        tab('today', 'Today'),
+        tab('overview', 'Overview'),
         Container(width: 2, height: 30, color: C.green),
         tab('apps', 'Applications ${store.applications.length}'),
         Container(width: 2, height: 30, color: C.green),
@@ -319,12 +328,14 @@ void _open(BuildContext context, AgendaItem i) {
   if (i.event != null) showEventForm(context, existing: i.event);
 }
 
-Widget _agendaRow(BuildContext context, AgendaItem i, {Color accent = C.ink3}) => _card(
+Widget _agendaRow(BuildContext context, AgendaItem i,
+        {Color accent = C.ink3, String origin = 'you'}) =>
+    _card(
       onTap: () => _open(context, i),
       edge: accent,
       child: Row(children: [
         SizedBox(
-          width: 118,
+          width: 136,
           // Midnight / 23:59 are how date-only entries are stored, not real
           // times, so those show as just the day.
           child: Text(
@@ -339,30 +350,147 @@ Widget _agendaRow(BuildContext context, AgendaItem i, {Color accent = C.ink3}) =
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: C.ink)),
         ),
-        const SizedBox(width: 8),
+        if (i.event?.status == 'signed-up') ...[
+          const SizedBox(width: 6),
+          const Tooltip(
+              message: 'Signed up',
+              child: Icon(Icons.check_circle, size: 15, color: C.green)),
+        ],
+        const SizedBox(width: 6),
+        originMark(origin),
+        const SizedBox(width: 6),
         _pill(i.detail.toUpperCase(), accent),
       ]),
     );
 
-// ---------------- Today ----------------
+// ---------------- Overview: schedule | goals ----------------
 
-class _TodayTab extends StatelessWidget {
+/// Accent for a schedule line, by what kind of thing it is.
+Color _kindColor(AgendaItem i) => switch (i.detail) {
+      'sign-up opens' || 'sign-up closes' => C.red,
+      'deadline' || 'application closes' => C.mustard,
+      'hackathon' || 'game-jam' => C.plum,
+      'career-fair' || 'company-event' || 'info-session' => C.navy,
+      _ => i.app != null ? C.greenD : C.teal,
+    };
+
+/// Where an item came from, as a small mark. Your own items carry none, so
+/// anything marked stands out as not typed in by you.
+Widget originMark(String from) {
+  final (IconData icon, String label, Color color) = switch (from) {
+    'cadence' => (Icons.auto_awesome, 'SUGGESTED', C.plum),
+    'import' => (Icons.file_download_outlined, 'IMPORTED', C.ink3),
+    'email' => (Icons.mail_outline, 'EMAIL', C.teal),
+    _ => (Icons.person_outline, '', C.ink3),
+  };
+  if (label.isEmpty) return const SizedBox.shrink();
+  return Tooltip(
+    message: originLabel[from] ?? from,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 11, color: color),
+        const SizedBox(width: 3),
+        Text(label, style: mono(size: 8.5, color: color, w: FontWeight.w700)),
+      ]),
+    ),
+  );
+}
+
+String _from(AgendaItem i) => i.event?.from ?? i.app?.from ?? 'you';
+
+/// Which heading a schedule item sits under: the next two days, this week,
+/// next week, then by month.
+String _bucket(DateTime when, DateTime now) {
+  if (when.isBefore(now.add(const Duration(hours: 48)))) return 'NEXT 48 HOURS';
+  final nextWeek = weekStart(now).add(const Duration(days: 7));
+  if (when.isBefore(nextWeek)) return 'THIS WEEK';
+  if (when.isBefore(nextWeek.add(const Duration(days: 7)))) return 'NEXT WEEK';
+  const months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY',
+    'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+  return '${months[when.month - 1]} ${when.year}';
+}
+
+Widget _stat(String label, String value, String? sub) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label.toUpperCase(), style: mono(size: 9, color: C.ink3, w: FontWeight.w700)),
+        Text(value, style: disp(size: 20, w: FontWeight.w700, color: C.ink)),
+        if (sub != null) Text(sub, style: const TextStyle(fontSize: 10.5, color: C.ink3)),
+      ],
+    );
+
+class _OverviewTab extends StatelessWidget {
   final _CareerPageState page;
-  const _TodayTab(this.page);
+  const _OverviewTab(this.page);
 
   @override
   Widget build(BuildContext context) {
-    if (store.applications.isEmpty && store.trackEvents.isEmpty) return _empty(context);
-    final a = CareerAgenda.build(store.applications, store.trackEvents);
-    final applied = a.appliedThisWeek;
-    return ListView(padding: const EdgeInsets.fromLTRB(14, 0, 14, 20), children: [
-      _sectionTitle('URGENT · NEXT 48 HOURS', color: C.red),
-      if (a.urgent.isEmpty) _none('Nothing closing or opening in the next two days.'),
-      for (final i in a.urgent) _agendaRow(context, i, accent: C.red),
+    if (store.applications.isEmpty && store.trackEvents.isEmpty && store.goals.isEmpty) {
+      return _empty(context);
+    }
+    return LayoutBuilder(builder: (context, c) {
+      if (c.maxWidth >= 760) {
+        return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(flex: 3, child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
+              children: _schedule(context))),
+          Container(width: 1.5, color: C.line),
+          Expanded(flex: 2, child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
+              children: _goals(context))),
+        ]);
+      }
+      // Narrow: one pane at a time, switched by two tabs.
+      Widget seg(String id, String label) {
+        final on = page._narrowPane == id;
+        return Expanded(
+          child: InkWell(
+            onTap: () => page._update(() => page._narrowPane = id),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 7),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: on ? C.green : C.line, width: on ? 2.5 : 1)),
+              ),
+              child: Text(label,
+                  style: TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w700, color: on ? C.greenD : C.ink3)),
+            ),
+          ),
+        );
+      }
 
-      _sectionTitle('FOLLOW-UPS DUE', color: C.mustard),
-      if (a.followUps.isEmpty) _none('No follow-ups due.'),
-      for (final app in a.followUps)
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [seg('schedule', 'Schedule'), seg('goals', 'Goals & metrics')]),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
+            children: page._narrowPane == 'goals' ? _goals(context) : _schedule(context),
+          ),
+        ),
+      ]);
+    });
+  }
+
+  // ---- left: everything coming up, however far out ----
+  List<Widget> _schedule(BuildContext context) {
+    final now = DateTime.now();
+    final a = CareerAgenda.build(store.applications, store.trackEvents);
+    final s = CareerSchedule.build(store.applications, store.trackEvents);
+    final groups = <String, List<AgendaItem>>{};
+    for (final i in s.upcoming) {
+      (groups[_bucket(i.when, now)] ??= []).add(i);
+    }
+    return [
+      if (a.followUps.isNotEmpty) ...[
+        _sectionTitle('FOLLOW-UPS DUE', color: C.mustard, count: '${a.followUps.length}'),
+        for (final app in a.followUps)
         _card(
           onTap: () => showApplicationForm(context, existing: app),
           edge: C.mustard,
@@ -377,6 +505,7 @@ class _TodayTab extends StatelessWidget {
             ),
           ]),
         ),
+      ],
 
       if (a.ghostCandidates.isNotEmpty) ...[
         _sectionTitle('NO REPLY IN 6 WEEKS'),
@@ -395,10 +524,55 @@ class _TodayTab extends StatelessWidget {
           ),
       ],
 
-      _sectionTitle('THIS WEEK', color: C.navy),
-      if (a.thisWeek.isEmpty) _none('No events or deadlines in the next 7 days.'),
-      for (final i in a.thisWeek) _agendaRow(context, i, accent: C.navy),
+      if (s.running.isNotEmpty) ...[
+        _sectionTitle('HAPPENING NOW', color: C.green, count: '${s.running.length}'),
+        for (final i in s.running) _agendaRow(context, i, accent: C.green, origin: _from(i)),
+      ],
 
+      if (s.upcoming.isEmpty && s.running.isEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: _none('Nothing on the calendar yet — add an event or an application deadline.'),
+        ),
+      for (final g in groups.entries) ...[
+        _sectionTitle(g.key,
+            color: g.key == 'NEXT 48 HOURS' ? C.red : C.navy, count: '${g.value.length}'),
+        for (final i in g.value) _agendaRow(context, i, accent: _kindColor(i), origin: _from(i)),
+      ],
+
+      if (s.tbd.isNotEmpty) ...[
+        _sectionTitle('DATE TBD', count: '${s.tbd.length}'),
+        for (final e in s.tbd)
+          _card(
+            onTap: () => showEventForm(context, existing: e),
+            child: Row(children: [
+              Expanded(
+                child: Text(e.name,
+                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: C.ink2)),
+              ),
+              originMark(e.from),
+              const SizedBox(width: 6),
+              _pill(e.type.toUpperCase(), C.ink3),
+            ]),
+          ),
+      ],
+    ];
+  }
+
+  // ---- right: built-in meters, then your own goals ----
+  List<Widget> _goals(BuildContext context) {
+    final a = CareerAgenda.build(store.applications, store.trackEvents);
+    final stats = AppStats.of(store.applications);
+    final applied = a.appliedThisWeek;
+    final now = DateTime.now();
+    final evs = store.trackEvents;
+    final signedUp = evs.where((e) =>
+        e.status == 'signed-up' && !(e.endAt?.isBefore(now) ?? false)).length;
+    final attended = evs.where((e) => e.status == 'attended').length;
+    final jams = evs.where((e) =>
+        e.status == 'attended' && (e.type == 'hackathon' || e.type == 'game-jam')).length;
+
+    return [
       _sectionTitle('APPLIED THIS WEEK'),
       _card(
         child: Row(children: [
@@ -409,21 +583,121 @@ class _TodayTab extends StatelessWidget {
               Text('target $weeklyTargetMin–$weeklyTargetMax',
                   style: const TextStyle(fontSize: 12.5, color: C.ink2)),
               const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: (applied / weeklyTargetMax).clamp(0, 1).toDouble(),
-                  minHeight: 8,
-                  backgroundColor: C.line,
-                  color: applied >= weeklyTargetMin ? C.green : C.mustard,
-                ),
-              ),
+              _meter(applied / weeklyTargetMax, applied >= weeklyTargetMin ? C.green : C.mustard),
             ]),
           ),
         ]),
       ),
-    ]);
+
+      _sectionTitle('PIPELINE'),
+      _card(
+        child: Wrap(spacing: 22, runSpacing: 10, children: [
+          _stat('Sent', '${stats.sent}', null),
+          _stat('Response', stats.responseRate == null ? '—' : '${(stats.responseRate! * 100).round()}%', null),
+          _stat('Interviewing',
+              '${(stats.byStatus['interview'] ?? 0) + (stats.byStatus['final-round'] ?? 0)}', null),
+          _stat('Offers', '${stats.byStatus['offer'] ?? 0}', null),
+        ]),
+      ),
+
+      _sectionTitle('EVENTS'),
+      _card(
+        child: Wrap(spacing: 22, runSpacing: 10, children: [
+          _stat('Signed up', '$signedUp', 'upcoming'),
+          _stat('Attended', '$attended', null),
+          _stat('Hacks & jams', '$jams', 'attended'),
+        ]),
+      ),
+
+      Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Row(children: [
+          Expanded(child: _sectionTitle('MY GOALS', color: C.greenD, count: '${store.goals.length}')),
+          TextButton.icon(
+            onPressed: () => showGoalForm(context),
+            icon: const Icon(Icons.add, size: 16),
+            label: const Text('Goal'),
+            style: TextButton.styleFrom(foregroundColor: C.greenD),
+          ),
+        ]),
+      ),
+      if (store.goals.isEmpty)
+        _none('Set a target — e.g. apply to 40 by 1 Dec, or 3 hackathons this semester.'),
+      for (final g in store.goals) _goalCard(context, g, now),
+    ];
   }
+
+  Widget _meter(double value, Color color) => ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: LinearProgressIndicator(
+          value: value.clamp(0, 1).toDouble(),
+          minHeight: 8,
+          backgroundColor: C.line,
+          color: color,
+        ),
+      );
+
+  Widget _goalCard(BuildContext context, Goal g, DateTime now) {
+    final have = g.progress(store.applications, store.trackEvents);
+    final done = have >= g.target;
+    // On pace = at least the share of the target that the elapsed share of the
+    // window calls for. Only meaningful with both a start and an end date.
+    final from = parseWhen(g.since), by = parseWhen(g.due, endOfDay: true);
+    String? pace;
+    var behind = false;
+    if (!done && by != null) {
+      final left = DateTime(by.year, by.month, by.day)
+          .difference(DateTime(now.year, now.month, now.day))
+          .inDays;
+      pace = left < 0 ? 'past due' : left == 0 ? 'due today' : '$left days left';
+      behind = left < 0;
+      if (from != null && by.isAfter(from) && left > 0) {
+        final elapsed = now.difference(from).inMinutes / by.difference(from).inMinutes;
+        behind = have < g.target * elapsed.clamp(0, 1);
+        pace = '$pace · ${behind ? 'behind pace' : 'on pace'}';
+      }
+    }
+    final color = done ? C.green : behind ? C.red : C.mustard;
+    return _card(
+      onTap: () => showGoalForm(context, existing: g),
+      edge: color,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(
+            child: Text(g.title,
+                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: C.ink)),
+          ),
+          Text('$have / ${g.target}', style: mono(size: 12, color: C.ink, w: FontWeight.w700)),
+          if (g.metric == 'manual') ...[
+            const SizedBox(width: 4),
+            _bump(Icons.remove, () => store.bumpGoal(g, -1)),
+            _bump(Icons.add, () => store.bumpGoal(g, 1)),
+          ],
+        ]),
+        const SizedBox(height: 6),
+        _meter(have / g.target, color),
+        const SizedBox(height: 5),
+        Text(
+          [
+            goalMetricLabel[g.metric] ?? g.metric,
+            if (g.since != null) 'since ${fmtWhen(g.since)}',
+            if (g.due != null) 'by ${fmtWhen(g.due)}',
+            if (done) 'done ✓' else if (pace != null) pace,
+          ].join(' · '),
+          style: TextStyle(fontSize: 11.5, color: behind ? C.red : C.ink3),
+        ),
+      ]),
+    );
+  }
+
+  Widget _bump(IconData icon, VoidCallback onTap) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(icon, size: 16, color: C.greenD),
+        ),
+      );
 
   Widget _empty(BuildContext context) => Center(
         child: Padding(
@@ -524,16 +798,6 @@ class _AppsTab extends StatelessWidget {
     ]);
   }
 
-  Widget _stat(String label, String value, String? sub) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label.toUpperCase(), style: mono(size: 9, color: C.ink3, w: FontWeight.w700)),
-          Text(value, style: disp(size: 20, w: FontWeight.w700, color: C.ink)),
-          if (sub != null) Text(sub, style: const TextStyle(fontSize: 10.5, color: C.ink3)),
-        ],
-      );
-
   Widget _filter(String label, String? value, List<String> options, ValueChanged<String?> onPick,
           {Map<String, String>? labels}) =>
       PopupMenuButton<String>(
@@ -622,10 +886,11 @@ class _AppsTab extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 12.5, color: C.ink2)),
           const SizedBox(height: 7),
-          Wrap(spacing: 5, runSpacing: 5, children: [
+          Wrap(spacing: 5, runSpacing: 5, crossAxisAlignment: WrapCrossAlignment.center, children: [
             _pill(a.track.toUpperCase(), C.navy),
             _sponsorPill(a.sponsorship),
             if (a.cvVersion == 'gaming') _pill('GAMING CV', C.mustard),
+            originMark(a.from),
           ]),
           if (a.dateApplied != null || a.deadline != null) ...[
             const SizedBox(height: 6),
@@ -689,7 +954,7 @@ class _EventsTab extends StatelessWidget {
     return ListView(padding: const EdgeInsets.fromLTRB(14, 0, 14, 20), children: [
       if (alerts.isNotEmpty) ...[
         _sectionTitle('SIGN-UP ALERTS · NEXT 48 HOURS', color: C.red),
-        for (final i in alerts) _agendaRow(context, i, accent: C.red),
+        for (final i in alerts) _agendaRow(context, i, accent: C.red, origin: _from(i)),
       ],
       _group(context, 'THIS WEEK', thisWeek),
       _group(context, 'NEXT WEEK', next),
@@ -742,6 +1007,7 @@ class _EventsTab extends StatelessWidget {
           Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
             Text(_fmtRange(e), style: mono(size: 10.5, color: C.ink2, w: FontWeight.w700)),
             _pill(e.type.toUpperCase(), C.navy),
+            originMark(e.from),
             if (e.location != null) Text(e.location!, style: const TextStyle(fontSize: 12, color: C.ink3)),
           ]),
           if (e.signupOpens != null || e.signupCloses != null) ...[

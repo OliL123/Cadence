@@ -17,7 +17,7 @@ void main() {
     store.loadCareerStarter();
     await tester.pumpWidget(const MaterialApp(home: Scaffold(body: CareerPage())));
     await tester.pumpAndSettle();
-    for (final tab in ['Applications 5', 'Events 7', 'Today']) {
+    for (final tab in ['Applications 5', 'Events 7', 'Overview', 'Goals & metrics', 'Schedule']) {
       await tester.tap(find.text(tab));
       await tester.pumpAndSettle();
     }
