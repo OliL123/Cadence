@@ -285,6 +285,19 @@ class CareerAgenda {
   CareerAgenda._(this.urgent, this.followUps, this.ghostCandidates, this.thisWeek,
       this.appliedThisWeek);
 
+  /// [urgent] trimmed for the compact DUE SOON banner: one sign-up item per
+  /// event (the next one — "opens" before "closes", as [urgent] is in time
+  /// order), and none once you're signed up. The Career page keeps the full
+  /// list.
+  List<AgendaItem> get urgentCompact {
+    final seen = <TrackEvent>{};
+    return [
+      for (final u in urgent)
+        if (u.event == null || !u.detail.startsWith('sign-up')) u
+        else if (u.event!.status != 'signed-up' && seen.add(u.event!)) u,
+    ];
+  }
+
   factory CareerAgenda.build(List<Application> apps, List<TrackEvent> events,
       {DateTime? now}) {
     final n = now ?? DateTime.now();
