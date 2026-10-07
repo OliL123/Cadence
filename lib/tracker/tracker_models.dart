@@ -278,6 +278,17 @@ class TrackEvent {
   ];
 }
 
+/// [url] as an http(s) link, adding https:// to a bare "riotgames.com/jobs";
+/// null for anything else (javascript:, data:, file:, …). Links reach the app
+/// from forms, CSV imports and later emails, so only web links are opened.
+String? safeWebLink(String url) {
+  final t = url.trim();
+  var u = Uri.tryParse(t);
+  if (u != null && !u.hasScheme) u = Uri.tryParse('https://$t');
+  if (u == null || !(u.scheme == 'http' || u.scheme == 'https') || u.host.isEmpty) return null;
+  return u.toString();
+}
+
 String _pick(dynamic v, List<String> allowed, String fallback) =>
     _pickOrNull(v, allowed) ?? fallback;
 

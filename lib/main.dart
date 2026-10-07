@@ -772,7 +772,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         color: C.paper2,
         child: Column(children: [
           _tasksHeader(),
-          _dueSoonBanner(),
           Expanded(
             // Built in full, not lazily: tapping a DUE SOON chip scrolls to
             // the task's card, and a lazy ListView hasn't built cards further
@@ -784,6 +783,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // Inside the scroll, not pinned above it, so it
+                        // scrolls away and leaves the list its full height.
+                        _dueSoonBanner(margin: const EdgeInsets.only(bottom: 10)),
                         ..._dailySection(),
                         for (final g in _groupsToShow()) ..._section(g),
                         if (store.showDone) ...[
@@ -868,7 +870,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ]),
       );
 
-  Widget _dueSoonBanner() {
+  Widget _dueSoonBanner({EdgeInsets margin = const EdgeInsets.fromLTRB(16, 0, 16, 8)}) {
     if (store.viewMode == 'board') return const SizedBox.shrink();
     // Tasks and career items share one list, soonest (or most overdue) first.
     final chips = <(DateTime, Widget)>[
@@ -909,7 +911,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (chips.isEmpty) return const SizedBox.shrink();
     chips.sort((a, b) => a.$1.compareTo(b.$1));
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      margin: margin,
       padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
       decoration: BoxDecoration(
         color: C.red.withValues(alpha: .06),

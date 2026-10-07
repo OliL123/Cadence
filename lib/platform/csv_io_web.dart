@@ -3,6 +3,8 @@ import 'dart:js_interop';
 
 import 'package:web/web.dart' as web;
 
+import '../tracker/tracker_models.dart' show safeWebLink;
+
 /// On the web, CSVs are real files: download to save, file picker to load.
 const bool csvIoUsesFiles = true;
 
@@ -48,5 +50,12 @@ Future<void> _readAll(web.HTMLInputElement input, Completer<List<String>> done) 
   if (!done.isCompleted) done.complete(out);
 }
 
-/// Open a posting link in a new tab.
-void openLink(String url) => web.window.open(url, '_blank');
+/// Open a posting link in a new tab — web links only. Links come from forms,
+/// CSV imports and (later) emails, so a `javascript:` or `data:` link must
+/// never run: opened from here it would execute inside Cadence and could read
+/// the sign-in session. `noopener` stops the opened page reaching back into
+/// this tab (e.g. to swap it for a look-alike login page).
+void openLink(String url) {
+  final safe = safeWebLink(url);
+  if (safe != null) web.window.open(safe, '_blank', 'noopener,noreferrer');
+}
