@@ -200,6 +200,9 @@ void main() {
       final g = Goal(id: 0, title: 'Apply to 40', target: 40, metric: 'applied');
       s.saveGoal(g);
       final cloud = s.exportState();
+      // The cloud copy predates the edit below (a test can run both in the
+      // same millisecond, which would tie the clocks).
+      ((cloud['goals'] as List).first as Map)['u'] = g.uAt - 1;
       s.bumpGoal(g, 1); // manual counter edit after the snapshot
       s.applyRemoteState({...cloud, 'updatedAt': g.uAt + 1});
       expect(s.goals.single.count, 1, reason: 'the newer local edit is kept');
@@ -254,6 +257,11 @@ void main() {
       s.loadCareerStarter();
       final cloud = s.exportState(); // snapshot before the edit
       final amazon = s.applications.firstWhere((a) => a.company == 'Amazon');
+      // Make the snapshot strictly older than the edit (a test can run both in
+      // the same millisecond, which would tie the clocks).
+      for (final a in (cloud['apps'] as List).cast<Map>()) {
+        a['u'] = amazon.uAt - 1;
+      }
       s.setAppStatus(amazon, 'applied');
       s.applyRemoteState({...cloud, 'updatedAt': amazon.uAt + 1});
       expect(s.applications.firstWhere((a) => a.company == 'Amazon').status, 'applied');
