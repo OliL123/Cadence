@@ -240,6 +240,16 @@ void main() {
     });
   });
 
+  test('only web links are opened', () {
+    expect(safeWebLink('https://riotgames.com/jobs'), 'https://riotgames.com/jobs');
+    expect(safeWebLink('  riotgames.com/jobs '), 'https://riotgames.com/jobs');
+    expect(safeWebLink('javascript:alert(document.cookie)'), isNull);
+    expect(safeWebLink('JaVaScRiPt:alert(1)'), isNull);
+    expect(safeWebLink('data:text/html,<script>alert(1)</script>'), isNull);
+    expect(safeWebLink('file:///C:/secrets.txt'), isNull);
+    expect(safeWebLink(''), isNull);
+  });
+
   group('sync', () {
     test('a blob from an older build does not wipe career data or score', () {
       final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
