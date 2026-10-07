@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../palette.dart';
 import '../store.dart';
+import '../widgets/felt.dart';
 import '../widgets/type.dart';
 import '../platform/csv_io_stub.dart'
     if (dart.library.js_interop) '../platform/csv_io_web.dart' as csvio;
@@ -329,39 +330,47 @@ void _open(BuildContext context, AgendaItem i) {
 }
 
 Widget _agendaRow(BuildContext context, AgendaItem i,
-        {Color accent = C.ink3, String origin = 'you'}) =>
-    _card(
-      onTap: () => _open(context, i),
-      edge: accent,
-      child: Row(children: [
-        SizedBox(
-          width: 136,
-          // Midnight / 23:59 are how date-only entries are stored, not real
-          // times, so those show as just the day.
-          child: Text(
-              _isRealTime(i.when)
-                  ? '${_fmtDay(i.when)} · ${isoDateTime(i.when).substring(11)}'
-                  : _fmtDay(i.when),
-              style: mono(size: 11, color: C.ink2, w: FontWeight.w700)),
-        ),
-        Expanded(
-          child: Text(i.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: C.ink)),
-        ),
-        if (i.event?.status == 'signed-up') ...[
-          const SizedBox(width: 6),
-          const Tooltip(
-              message: 'Signed up',
-              child: Icon(Icons.check_circle, size: 15, color: C.green)),
-        ],
-        const SizedBox(width: 6),
-        originMark(origin),
-        const SizedBox(width: 6),
-        _pill(i.detail.toUpperCase(), accent),
-      ]),
-    );
+    {Color accent = C.ink3, String origin = 'you'}) {
+  // Midnight / 23:59 are how date-only entries are stored, not real times,
+  // so those show as just the day.
+  final when = Text(
+      _isRealTime(i.when)
+          ? '${_fmtDay(i.when)} · ${isoDateTime(i.when).substring(11)}'
+          : _fmtDay(i.when),
+      style: mono(size: 11, color: C.ink2, w: FontWeight.w700));
+  final title = Text(i.title,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: C.ink));
+  final marks = <Widget>[
+    if (i.event?.status == 'signed-up') ...[
+      const SizedBox(width: 6),
+      const Tooltip(message: 'Signed up', child: Icon(Icons.check_circle, size: 15, color: C.green)),
+    ],
+    const SizedBox(width: 6),
+    originMark(origin),
+    const SizedBox(width: 6),
+    _pill(i.detail.toUpperCase(), accent),
+  ];
+  return _card(
+    onTap: () => _open(context, i),
+    edge: accent,
+    child: LayoutBuilder(
+      builder: (_, c) => c.maxWidth < 420
+          // Phone: date and tags on one line, the title full width below it.
+          ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [Expanded(child: when), ...marks]),
+              const SizedBox(height: 5),
+              title,
+            ])
+          : Row(children: [
+              SizedBox(width: 136, child: when),
+              Expanded(child: title),
+              ...marks,
+            ]),
+    ),
+  );
+}
 
 // ---------------- Overview: schedule | goals ----------------
 
@@ -419,7 +428,10 @@ Widget _stat(String label, String value, String? sub) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label.toUpperCase(), style: mono(size: 9, color: C.ink3, w: FontWeight.w700)),
+        Text(label.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: mono(size: 9, color: C.ink3, w: FontWeight.w700)),
         Text(value, style: disp(size: 20, w: FontWeight.w700, color: C.ink)),
         if (sub != null) Text(sub, style: const TextStyle(fontSize: 10.5, color: C.ink3)),
       ],
@@ -440,10 +452,7 @@ class _OverviewTab extends StatelessWidget {
           Expanded(flex: 3, child: ListView(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
               children: _schedule(context))),
-          Container(width: 1.5, color: C.line),
-          Expanded(flex: 2, child: ListView(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
-              children: _goals(context))),
+          Expanded(flex: 2, child: _goalsBoard(context)),
         ]);
       }
       // Narrow: one pane at a time, switched by two tabs.
@@ -469,10 +478,12 @@ class _OverviewTab extends StatelessWidget {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [seg('schedule', 'Schedule'), seg('goals', 'Goals & metrics')]),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
-            children: page._narrowPane == 'goals' ? _goals(context) : _schedule(context),
-          ),
+          child: page._narrowPane == 'goals'
+              ? _goalsBoard(context)
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
+                  children: _schedule(context),
+                ),
         ),
       ]);
     });
@@ -559,7 +570,29 @@ class _OverviewTab extends StatelessWidget {
     ];
   }
 
-  // ---- right: built-in meters, then your own goals ----
+  // ---- right: the goals board — the mahjong table's felt, with the meters
+  // and goals laid on it as ivory tiles ----
+  Widget _goalsBoard(BuildContext context) => FeltTable(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+          children: _goals(context),
+        ),
+      );
+
+  /// A cream label on the felt.
+  Widget _feltTitle(String text, {String? count}) => Padding(
+        padding: const EdgeInsets.fromLTRB(2, 10, 2, 8),
+        child: Row(children: [
+          Text(text,
+              style: mono(size: 10, color: C.creamTxt.withValues(alpha: .8), w: FontWeight.w700)
+                  .copyWith(letterSpacing: 1.2)),
+          if (count != null) ...[
+            const SizedBox(width: 6),
+            Text(count, style: mono(size: 10, color: C.mustard, w: FontWeight.w700)),
+          ],
+        ]),
+      );
+
   List<Widget> _goals(BuildContext context) {
     final a = CareerAgenda.build(store.applications, store.trackEvents);
     final stats = AppStats.of(store.applications);
@@ -572,67 +605,92 @@ class _OverviewTab extends StatelessWidget {
     final jams = evs.where((e) =>
         e.status == 'attended' && (e.type == 'hackathon' || e.type == 'game-jam')).length;
 
+    final onTarget = applied >= weeklyTargetMin;
     return [
-      _sectionTitle('APPLIED THIS WEEK'),
-      _card(
+      // Header, like the mahjong wall's 麻雀.
+      Row(children: [
+        Text('目標',
+            style: serifHk(size: 26, color: C.creamTxt).copyWith(shadows: const [
+              Shadow(color: Color(0x66000000), offset: Offset(1, 2), blurRadius: 4),
+            ])),
+        const SizedBox(width: 9),
+        Text('GOALS', style: disp(size: 15, w: FontWeight.w600, color: C.mustard)),
+        const Spacer(),
+        TextButton.icon(
+          onPressed: () => showGoalForm(context),
+          icon: const Icon(Icons.add, size: 16),
+          label: const Text('Goal'),
+          style: TextButton.styleFrom(
+            backgroundColor: C.mustard,
+            foregroundColor: C.ink,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ]),
+
+      _feltTitle('APPLIED THIS WEEK'),
+      IvoryTile(
+        lip: onTarget ? tileGreen : C.mustard,
         child: Row(children: [
-          Text('$applied', style: disp(size: 26, w: FontWeight.w700, color: C.ink)),
-          const SizedBox(width: 10),
+          Text('$applied', style: disp(size: 34, w: FontWeight.w700, color: C.ink)),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('target $weeklyTargetMin–$weeklyTargetMax',
-                  style: const TextStyle(fontSize: 12.5, color: C.ink2)),
-              const SizedBox(height: 6),
-              _meter(applied / weeklyTargetMax, applied >= weeklyTargetMin ? C.green : C.mustard),
+              Text(onTarget ? 'on target this week' : 'target $weeklyTargetMin–$weeklyTargetMax a week',
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: C.ink2)),
+              const SizedBox(height: 7),
+              _meter(applied / weeklyTargetMax, onTarget ? C.green : C.mustard),
             ]),
           ),
         ]),
       ),
 
-      _sectionTitle('PIPELINE'),
-      _card(
-        child: Wrap(spacing: 22, runSpacing: 10, children: [
-          _stat('Sent', '${stats.sent}', null),
-          _stat('Response', stats.responseRate == null ? '—' : '${(stats.responseRate! * 100).round()}%', null),
-          _stat('Interviewing',
+      _feltTitle('PIPELINE'),
+      IvoryTile(
+        child: _statRow([
+          ('Sent', '${stats.sent}', null),
+          ('Response', stats.responseRate == null ? '—' : '${(stats.responseRate! * 100).round()}%', null),
+          ('Interviews',
               '${(stats.byStatus['interview'] ?? 0) + (stats.byStatus['final-round'] ?? 0)}', null),
-          _stat('Offers', '${stats.byStatus['offer'] ?? 0}', null),
+          ('Offers', '${stats.byStatus['offer'] ?? 0}', null),
         ]),
       ),
 
-      _sectionTitle('EVENTS'),
-      _card(
-        child: Wrap(spacing: 22, runSpacing: 10, children: [
-          _stat('Signed up', '$signedUp', 'upcoming'),
-          _stat('Attended', '$attended', null),
-          _stat('Hacks & jams', '$jams', 'attended'),
+      _feltTitle('EVENTS'),
+      IvoryTile(
+        lip: C.plum,
+        child: _statRow([
+          ('Signed up', '$signedUp', 'upcoming'),
+          ('Attended', '$attended', null),
+          ('Hacks & jams', '$jams', 'attended'),
         ]),
       ),
 
-      Padding(
-        padding: const EdgeInsets.only(top: 6),
-        child: Row(children: [
-          Expanded(child: _sectionTitle('MY GOALS', color: C.greenD, count: '${store.goals.length}')),
-          TextButton.icon(
-            onPressed: () => showGoalForm(context),
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text('Goal'),
-            style: TextButton.styleFrom(foregroundColor: C.greenD),
-          ),
-        ]),
-      ),
+      _feltTitle('MY GOALS', count: '${store.goals.length}'),
       if (store.goals.isEmpty)
-        _none('Set a target — e.g. apply to 40 by 1 Dec, or 3 hackathons this semester.'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
+          child: Text('Set a target — e.g. apply to 40 by 1 Dec, or 3 hackathons this semester.',
+              style: TextStyle(fontSize: 12.5, color: C.creamTxt.withValues(alpha: .75), height: 1.4)),
+        ),
       for (final g in store.goals) _goalCard(context, g, now),
     ];
   }
+
+  /// Stats spread evenly across a tile, each a small label over a big number.
+  Widget _statRow(List<(String, String, String?)> stats) =>
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        for (final (label, value, sub) in stats)
+          Expanded(child: _stat(label, value, sub)),
+      ]);
 
   Widget _meter(double value, Color color) => ClipRRect(
         borderRadius: BorderRadius.circular(4),
         child: LinearProgressIndicator(
           value: value.clamp(0, 1).toDouble(),
           minHeight: 8,
-          backgroundColor: C.line,
+          backgroundColor: const Color(0xFFD9CFB4),
           color: color,
         ),
       );
@@ -658,9 +716,9 @@ class _OverviewTab extends StatelessWidget {
       }
     }
     final color = done ? C.green : behind ? C.red : C.mustard;
-    return _card(
+    return IvoryTile(
       onTap: () => showGoalForm(context, existing: g),
-      edge: color,
+      lip: done ? tileGreen : color,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(

@@ -5,11 +5,12 @@ import 'palette.dart';
 import 'models.dart';
 import 'store.dart';
 import 'tiles.dart';
+import 'widgets/felt.dart';
 
-const _feltTop = Color(0xFF1B6B4D);
-const _feltBottom = Color(0xFF123F2D);
-const _feltBar = Color(0xFF0F3625);
-const _tileGreen = Color(0xFF14C47D);
+const _feltTop = feltTop;
+const _feltBottom = feltBottom;
+const _feltBar = feltBar;
+const _tileGreen = tileGreen;
 const _winCol = Color(0xFF38C07F);
 const _daaiCol = Color(0xFFA31545);
 
@@ -178,7 +179,7 @@ class _FocusWallState extends State<FocusWall>
               ],
             ),
             child: Stack(children: [
-              Positioned.fill(child: CustomPaint(painter: _FeltStripes())),
+              const Positioned.fill(child: CustomPaint(painter: FeltStripes())),
               Column(children: [
                 if (widget.showHeader) _header(),
                 Expanded(
@@ -404,18 +405,3 @@ class _FocusWallState extends State<FocusWall>
 }
 
 /// Subtle diagonal weave on the felt.
-class _FeltStripes extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = const Color(0x10FFFFFF)
-      ..strokeWidth = 7;
-    const gap = 22.0;
-    for (double x = -size.height; x < size.width; x += gap) {
-      canvas.drawLine(Offset(x, 0), Offset(x + size.height, size.height), p);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}

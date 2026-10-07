@@ -6,19 +6,40 @@ import '../store.dart';
 import '../widgets/type.dart';
 import 'tracker_models.dart';
 
+/// Near-white fields on the cream dialog, so each one reads as a field, with
+/// the label always sitting on the border — an empty field shows its label up
+/// there and a pale hint inside, never a label that looks like filled-in text.
+const _fieldFill = Color(0xFFFFFCF4);
+
 InputDecoration _dec(String label, {String? hint}) => InputDecoration(
       labelText: label,
-      hintText: hint,
+      hintText: hint ?? '—',
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      labelStyle: const TextStyle(fontSize: 13, color: C.ink2, fontWeight: FontWeight.w600),
+      floatingLabelStyle:
+          const TextStyle(fontSize: 13, color: C.ink2, fontWeight: FontWeight.w700),
+      hintStyle: TextStyle(fontSize: 14, color: C.ink3.withValues(alpha: .7)),
       isDense: true,
       filled: true,
-      fillColor: C.paper,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 11),
+      fillColor: _fieldFill,
+      contentPadding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
       enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
-          borderSide: const BorderSide(color: C.line, width: 1.3)),
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFFC9B98F), width: 1.2)),
       focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(7),
-          borderSide: const BorderSide(color: C.mustard, width: 1.5)),
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: C.green, width: 1.8)),
+    );
+
+/// A small heading that splits a form into sections.
+Widget _heading(String text) => Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 2),
+      child: Row(children: [
+        Text(text,
+            style: mono(size: 10, color: C.greenD, w: FontWeight.w700).copyWith(letterSpacing: 1.3)),
+        const SizedBox(width: 10),
+        const Expanded(child: Divider(height: 1, thickness: 1, color: C.line)),
+      ]),
     );
 
 Widget _text(TextEditingController c, String label,
@@ -179,33 +200,41 @@ Widget _formShell(BuildContext context,
     required List<Widget> fields,
     required VoidCallback onSave,
     VoidCallback? onDelete}) {
-  return Dialog(
-    backgroundColor: C.paper2,
-    insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 620),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 10, 6),
+  // On a phone the form takes the whole screen: more room to read and type,
+  // and the keyboard doesn't squeeze it into a sliver.
+  final phone = MediaQuery.sizeOf(context).width < 560;
+  final body = Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(20, 14, 10, 12),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: C.line)),
+          ),
           child: Row(children: [
             Expanded(
-                child: Text(title, style: disp(size: 18, w: FontWeight.w700, color: C.ink))),
+                child: Text(title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: disp(size: 19, w: FontWeight.w700, color: C.ink))),
             IconButton(
+                tooltip: 'Close',
                 icon: const Icon(Icons.close, color: C.ink3),
                 onPressed: () => Navigator.pop(context)),
           ]),
         ),
         Flexible(
+          fit: phone ? FlexFit.tight : FlexFit.loose,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
             child: Column(children: [
-              for (final f in fields) ...[f, const SizedBox(height: 10)],
+              for (final f in fields) ...[f, const SizedBox(height: 12)],
             ]),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 0, 20, 14),
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 10, 20, 12),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: C.line)),
+          ),
           child: Row(children: [
             if (onDelete != null)
               TextButton.icon(
@@ -226,8 +255,19 @@ Widget _formShell(BuildContext context,
                 child: const Text('Save')),
           ]),
         ),
-      ]),
-    ),
+      ]);
+  if (phone) {
+    return Dialog.fullscreen(
+      backgroundColor: C.paper2,
+      child: SafeArea(child: body),
+    );
+  }
+  return Dialog(
+    backgroundColor: C.paper2,
+    insetPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 24),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    clipBehavior: Clip.antiAlias,
+    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 620), child: body),
   );
 }
 
@@ -343,12 +383,14 @@ class _AppFormState extends State<_AppForm> {
           Align(
               alignment: Alignment.centerLeft,
               child: Text(_error!, style: const TextStyle(color: C.red, fontSize: 13))),
+        _heading('THE ROLE'),
         _pair(_text(_company, 'Company *'), _text(_role, 'Role', hint: 'Software Engineering Intern')),
         _pair(
           _drop('Status', d.status, appStatuses, (v) => setState(() => d.status = v),
               labels: appStatusLabel),
           _drop('Track', d.track, appTracks, (v) => d.track = v),
         ),
+        _heading('ELIGIBILITY'),
         _pair(
           _drop('Sponsorship (F-1 / CPT)', d.sponsorship, sponsorships, (v) => setState(() => d.sponsorship = v),
               labels: const {'cpt-ok': 'CPT OK', 'no-sponsorship': 'No sponsorship', 'unclear': 'Unclear'}),
@@ -356,23 +398,27 @@ class _AppFormState extends State<_AppForm> {
         ),
         if (d.sponsorship == 'no-sponsorship')
           const _Warn('This posting says no sponsorship — check before spending time on it.'),
+        _heading('POSTING'),
         _pair(_text(_term, 'Term'), _text(_location, 'Location', hint: 'City or Remote')),
         _pair(
-          _drop('Source', d.source, appSources, (v) => d.source = v),
+          _drop('Found on', d.source, appSources, (v) => d.source = v),
           _drop('CV version', d.cvVersion, cvVersions, (v) => d.cvVersion = v),
         ),
-        _text(_link, 'Posting link', kb: TextInputType.url),
+        _text(_link, 'Posting link', hint: 'https://…', kb: TextInputType.url),
+        _heading('DATES'),
         _pair(
           WhenField(label: 'Date applied', initial: d.dateApplied, onChanged: (v) => d.dateApplied = v),
           WhenField(label: 'Application deadline', initial: d.deadline, onChanged: (v) => d.deadline = v),
         ),
+        _heading('NEXT STEP'),
         _pair(
           _text(_next, 'Next action', hint: 'follow up, OA due, prep interview'),
           WhenField(label: 'Next action date', initial: d.nextActionDate,
               onChanged: (v) => d.nextActionDate = v),
         ),
         _text(_contact, 'Contact', hint: 'Recruiter / referral name + email'),
-        _text(_notes, 'Notes', maxLines: 5),
+        _heading('NOTES'),
+        _text(_notes, 'Notes', hint: 'Anything worth remembering', maxLines: 5),
         _originDrop(d.from, (v) => d.origin = v),
       ],
     );
@@ -482,27 +528,33 @@ class _EventFormState extends State<_EventForm> {
           Align(
               alignment: Alignment.centerLeft,
               child: Text(_error!, style: const TextStyle(color: C.red, fontSize: 13))),
+        _heading('THE EVENT'),
         _text(_name, 'Name *'),
         _pair(
           _drop('Type', d.type, eventTypes, (v) => d.type = v),
           _drop('Status', d.status, eventStatuses, (v) => d.status = v),
         ),
+        _heading('WHEN'),
         _pair(
           WhenField(label: 'Starts (blank = TBD)', initial: d.start, withTime: true,
               onChanged: (v) => d.start = v),
           WhenField(label: 'Ends', initial: d.end, withTime: true, onChanged: (v) => d.end = v),
         ),
+        _heading('SIGN-UP WINDOW'),
         _pair(
           WhenField(label: 'Sign-up opens', initial: d.signupOpens, withTime: true,
               onChanged: (v) => d.signupOpens = v),
           WhenField(label: 'Sign-up closes', initial: d.signupCloses, withTime: true,
               onChanged: (v) => d.signupCloses = v),
         ),
+        _heading('WHERE'),
         _pair(_text(_location, 'Location', hint: 'Room, city, or Online'),
-            _text(_company, 'Related company')),
-        _text(_link, 'Link', kb: TextInputType.url),
-        _text(_prep, 'Prep — what to do beforehand', maxLines: 4),
-        _text(_outcome, 'Outcome — who you met, what came of it', maxLines: 4),
+            _text(_company, 'Related company', hint: 'Company running it, if any')),
+        _text(_link, 'Link', hint: 'https://…', kb: TextInputType.url),
+        _heading('NOTES'),
+        _text(_prep, 'Prep — what to do beforehand', hint: 'What to research or bring', maxLines: 4),
+        _text(_outcome, 'Outcome — who you met, what came of it',
+            hint: 'Fill in afterwards', maxLines: 4),
         _originDrop(d.from, (v) => d.origin = v),
       ],
     );
@@ -590,12 +642,14 @@ class _GoalFormState extends State<_GoalForm> {
           Align(
               alignment: Alignment.centerLeft,
               child: Text(_error!, style: const TextStyle(color: C.red, fontSize: 13))),
+        _heading('THE GOAL'),
         _pair(_text(_title, 'Goal *', hint: 'Apply to 40 internships'),
             _text(_target, 'Target *', kb: TextInputType.number)),
         _drop('What counts', d.metric, goalMetrics, (v) => setState(() => d.metric = v),
             labels: goalMetricLabel),
         if (d.metric == 'manual')
           const _Hint('You tap + on the goal each time you make progress.'),
+        _heading('TIMEFRAME'),
         _pair(
           WhenField(label: 'Count from (blank = all time)', initial: d.since,
               onChanged: (v) => d.since = v),
