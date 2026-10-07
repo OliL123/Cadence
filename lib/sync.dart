@@ -272,11 +272,16 @@ class SyncService extends ChangeNotifier {
           return;
         }
       }
+      // Snapshot the payload and its score together: the score marked synced
+      // must be exactly the one uploaded.
+      final payload = _payload();
+      final pushedScore = store.score;
       await _sb.from(_table).upsert({
         'user_id': uid,
-        'data': _payload(),
+        'data': payload,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
+      store.markScoreSynced(pushedScore);
       lastDeviceId = Device.id;
       lastDeviceName = Device.name;
       _lastSyncedJson = json;
@@ -330,11 +335,14 @@ class SyncService extends ChangeNotifier {
   /// from the explicit "Use this device" override.
   Future<void> _overwriteCloud() async {
     try {
+      final payload = _payload();
+      final pushedScore = store.score;
       await _sb.from(_table).upsert({
         'user_id': _sb.auth.currentUser!.id,
-        'data': _payload(),
+        'data': payload,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
+      store.markScoreSynced(pushedScore);
       lastDeviceId = Device.id;
       lastDeviceName = Device.name;
       _lastSyncedJson = jsonEncode(store.exportState());

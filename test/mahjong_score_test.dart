@@ -42,6 +42,75 @@ void main() {
         reason: 'reopening the app must not re-celebrate the same meld');
   });
 
+  test('a newer blob from a device with an older score does not rewind it', () {
+    final s = withTasks(3);
+    final ids = s.tasks.map((t) => t.id).toList();
+    // The other device: same tasks, never saw the meld, but edited later.
+    final other = s.exportState()..['updatedAt'] = 9999999999999;
+    s.awardMeld('peng', ids);
+    s.applyRemoteState(Map<String, dynamic>.from(other));
+    expect(s.score, 2);
+    expect(s.awardMeld('peng', ids), isFalse,
+        reason: 'the merged record still knows this meld was scored');
+    expect(s.pendingMergePush, isTrue,
+        reason: 'the kept score must be pushed back so the cloud converges');
+  });
+
+  test('melds scored on two devices between syncs both count', () {
+    final s = withTasks(6);
+    final ids = s.tasks.map((t) => t.id).toList();
+    s.markScoreSynced(0); // both devices last synced at 0
+    // The other device scored a peng (+2) on tasks 0-2 and pushed first.
+    final other = s.exportState()
+      ..['score'] = 2
+      ..['scoredMelds'] = ['peng:${ids[0]},${ids[1]},${ids[2]}']
+      ..['updatedAt'] = 9999999999999;
+    // Meanwhile this device scored a daai (+4) on tasks 3-5.
+    s.awardMeld('daai', [ids[3], ids[4], ids[5]]);
+    s.applyRemoteState(Map<String, dynamic>.from(other));
+    expect(s.score, 6);
+    expect(s.pendingMergePush, isTrue);
+    // Once pushed, the same blob coming back adds nothing more.
+    s.markScoreSynced(s.score);
+    s.pendingMergePush = false;
+    s.applyRemoteState(Map<String, dynamic>.from(s.exportState()));
+    expect(s.score, 6);
+  });
+
+  test('a cloud copy already holding our points does not double them', () {
+    final s = withTasks(3);
+    final ids = s.tasks.map((t) => t.id).toList();
+    s.awardMeld('peng', ids);
+    s.markScoreSynced(2); // pushed
+    final cloud = s.exportState()..['updatedAt'] = 9999999999999;
+    s.applyRemoteState(Map<String, dynamic>.from(cloud));
+    expect(s.score, 2);
+    expect(s.pendingMergePush, isFalse);
+  });
+
+  test('a meld record the cloud lacks is pushed back even on a tied score', () {
+    final s = withTasks(6);
+    final ids = s.tasks.map((t) => t.id).toList();
+    s.awardMeld('peng', [ids[0], ids[1], ids[2]]);
+    s.markScoreSynced(2);
+    final other = s.exportState()
+      ..['scoredMelds'] = ['peng:${ids[3]},${ids[4]},${ids[5]}']
+      ..['updatedAt'] = 9999999999999;
+    s.applyRemoteState(Map<String, dynamic>.from(other));
+    expect(s.score, 2);
+    expect(s.scoredMelds, hasLength(2));
+    expect(s.pendingMergePush, isTrue);
+  });
+
+  test('a manual "use the cloud copy" still takes the cloud score', () {
+    final s = withTasks(3);
+    final ids = s.tasks.map((t) => t.id).toList();
+    final cloud = s.exportState();
+    s.awardMeld('peng', ids);
+    s.applyRemoteState(Map<String, dynamic>.from(cloud), merge: false);
+    expect(s.score, 0);
+  });
+
   test('melds of finished tasks are forgotten', () {
     final s = withTasks(4);
     final ids = s.tasks.map((t) => t.id).toList();

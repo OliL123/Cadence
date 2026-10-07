@@ -20,6 +20,9 @@ class CadenceStore extends ChangeNotifier {
   // Melds already scored, as "type:id,id,id", so the same meld isn't scored
   // (or celebrated) again when other tiles move or the wall is reopened.
   List<String> scoredMelds = [];
+  // [score] as of the last sync with the cloud, so a merge can tell what this
+  // device earned since then. Per-device (local blob only); null = unknown.
+  int? _syncedScore;
   // Career tracker (Cadence only in the UI; harmless in Chronicle's data).
   List<Application> applications = [];
   List<TrackEvent> trackEvents = [];
@@ -129,6 +132,7 @@ class CadenceStore extends ChangeNotifier {
         'showDone': showDone,
         'headerCollapsed': headerCollapsed,
         'hideEmptyGroups': hideEmptyGroups,
+        'syncedScore': _syncedScore,
       };
 
   /// Replace the whole in-memory state from a map (from disk or from the cloud).
@@ -167,6 +171,7 @@ class CadenceStore extends ChangeNotifier {
     showDone = j['showDone'] ?? showDone;
     headerCollapsed = j['headerCollapsed'] ?? headerCollapsed;
     hideEmptyGroups = j['hideEmptyGroups'] ?? hideEmptyGroups;
+    if (j.containsKey('syncedScore')) _syncedScore = (j['syncedScore'] as num?)?.toInt();
     updatedAt = j['updatedAt'] ?? 0;
     weatherPlace = j['wxPlace'] ?? weatherPlace;
     weatherLat = (j['wxLat'] ?? weatherLat).toDouble();
@@ -217,10 +222,33 @@ class CadenceStore extends ChangeNotifier {
     final localApps = List<Application>.from(applications);
     final localEvents = List<TrackEvent>.from(trackEvents);
     final localUid = _uid;
+    final localScore = score;
+    final localSynced = _syncedScore;
+    final localMelds = List<String>.from(scoredMelds);
     final remoteTs = (j['updatedAt'] ?? 0) as int;
     applyState(j); // replaces tasks with the (newer) incoming blob
+    final remoteScore = score;
     var swapped = false;
     if (merge) {
+      // Points earned here since the last sync are added on top of the
+      // incoming total, so melds scored on two devices between syncs both
+      // count. Without a sync baseline (first run of this build), fall back
+      // to the higher total — the score only ever goes up.
+      final gain = localSynced == null
+          ? localScore - remoteScore
+          : localScore - localSynced;
+      if (gain > 0) {
+        score = remoteScore + gain;
+        swapped = true;
+      }
+      // Keep the scored-meld record too, or a meld still on the wall would
+      // score again; and publish it if the cloud's record was missing some.
+      for (final k in localMelds) {
+        if (!scoredMelds.contains(k)) {
+          scoredMelds.add(k);
+          swapped = true;
+        }
+      }
       for (var i = 0; i < tasks.length; i++) {
         final loc = localById[tasks[i].id];
         if (loc != null && loc.uAt > tasks[i].uAt) {
@@ -256,6 +284,9 @@ class CadenceStore extends ChangeNotifier {
     // leave it orphaned: every section matches on an exact group key, so an
     // orphan renders nowhere and looks like lost data.
     _rehomeOrphans();
+    // This is now what the cloud holds; any merged-in gain becomes synced once
+    // the sync layer pushes it and calls [markScoreSynced].
+    _syncedScore = remoteScore;
     if (swapped) {
       _reconcile(); // re-attach wall/tiles for the swapped task objects
       updatedAt = DateTime.now().millisecondsSinceEpoch; // our merge is newest
@@ -292,6 +323,15 @@ class CadenceStore extends ChangeNotifier {
   Future<void> save() async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_key, jsonEncode(exportLocal()));
+  }
+
+  /// The cloud now holds [pushed] — the score in the payload just uploaded,
+  /// which may trail [score] if a meld formed while the push was in flight.
+  /// Persisted, so a restart can't forget it and count the same points twice.
+  void markScoreSynced(int pushed) {
+    if (_syncedScore == pushed) return;
+    _syncedScore = pushed;
+    save();
   }
 
   /// Notify listeners without persisting (used after an external reload).
@@ -1118,6 +1158,24 @@ class CadenceStore extends ChangeNotifier {
       return '${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.weekday % 7]}$tm';
     }
     return '${d.day} ${mon[d.month - 1]}$tm';
+  }
+
+  /// A short label for a moment in the next few days, in [dueLabel]'s style:
+  /// "today 2:30pm", "tmr", "Fri 12:00pm", "14 Nov". 23:59 means "end of the
+  /// day" (a date with no time), so it shows no time.
+  static String whenLabel(DateTime at) {
+    final days = _daysFromToday(at);
+    final tm = at.hour == 23 && at.minute == 59
+        ? ''
+        : ' ${_fmtTime('${at.hour}:${at.minute.toString().padLeft(2, '0')}')}';
+    if (days < 0) return 'overdue$tm';
+    if (days == 0) return 'today$tm';
+    if (days == 1) return 'tmr$tm';
+    if (days < 7) {
+      return '${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][at.weekday % 7]}$tm';
+    }
+    const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${at.day} ${mon[at.month - 1]}$tm';
   }
 
   /// "14:30" -> "2:30pm"

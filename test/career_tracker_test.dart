@@ -26,6 +26,28 @@ void main() {
       expect(titles, contains('Virtual Engineering Career Fair|sign-up opens'));
     });
 
+    test('the compact list has one sign-up item per event; the full list keeps both', () {
+      List<String> fair(List<AgendaItem> items) => items
+          .where((u) => u.title == 'Virtual Engineering Career Fair')
+          .map((u) => u.detail)
+          .toList();
+      // Opens Thu 12:00, closes Fri 12:00: both inside 48h.
+      final a = CareerAgenda.build(apps, events, now: now);
+      expect(fair(a.urgent), ['sign-up opens', 'sign-up closes']);
+      expect(fair(a.urgentCompact), ['sign-up opens']);
+      // Window open now: only "closes" is left.
+      final b = CareerAgenda.build(apps, events, now: DateTime(2026, 10, 8, 15));
+      expect(fair(b.urgentCompact), ['sign-up closes']);
+    });
+
+    test('the compact list drops sign-ups once signed up', () {
+      final evs = starterEvents(id);
+      evs.firstWhere((e) => e.name == 'Virtual Engineering Career Fair').status = 'signed-up';
+      final a = CareerAgenda.build(apps, evs, now: now);
+      expect(a.urgentCompact.where((u) => u.title == 'Virtual Engineering Career Fair'),
+          isEmpty);
+    });
+
     test('a deadline already handled is not urgent', () {
       final a = CareerAgenda.build(apps, events,
           now: DateTime(2026, 11, 5, 9)); // the day before Riot closes

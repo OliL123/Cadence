@@ -795,20 +795,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget _dueSoonBanner() {
     if (store.viewMode == 'board') return const SizedBox.shrink();
-    final soon =
-        store.tasks.where((t) => !t.done && !t.daily && store.soon(t)).toList();
-    // Career items that can't wait: sign-ups/deadlines in 48h, follow-ups due.
-    final career = _hasCareer
-        ? CareerAgenda.build(store.applications, store.trackEvents)
-        : null;
-    final careerChips = <Widget>[
-      if (career != null) ...[
-        for (final u in career.urgent) _careerChip(u.title, u.detail),
-        for (final a in career.followUps)
-          _careerChip(a.company, a.nextAction ?? 'follow up'),
-      ],
+    // Tasks and career items share one list, soonest (or most overdue) first.
+    final chips = <(DateTime, Widget)>[
+      for (final t in store.tasks)
+        if (!t.done && !t.daily && store.soon(t)) (store.dueAt(t)!, _dueSoonChip(t)),
     ];
-    if (soon.isEmpty && careerChips.isEmpty) return const SizedBox.shrink();
+    // Career items that can't wait: sign-ups/deadlines in 48h, follow-ups due.
+    if (_hasCareer) {
+      final career = CareerAgenda.build(store.applications, store.trackEvents);
+      for (final u in career.urgentCompact) {
+        chips.add((
+          u.when,
+          _careerChip(u.title, '${u.detail} ${CadenceStore.whenLabel(u.when)}',
+              tip: _agendaTip(u)),
+        ));
+      }
+      for (final a in career.followUps) {
+        // End of its day, like deadlines and date-only tasks, so same-day
+        // items sort consistently.
+        final at = parseWhen(a.nextActionDate, endOfDay: true) ?? DateTime.now();
+        chips.add((
+          at,
+          _careerChip(a.company, a.nextAction ?? 'follow up',
+              tip: [
+                '${a.company}${a.role.isEmpty ? '' : ' — ${a.role}'}',
+                'Follow up ${CadenceStore.whenLabel(at)}: ${a.nextAction ?? '—'}',
+                if (a.contact != null) 'Contact: ${a.contact}',
+              ].join('\n')),
+        ));
+      }
+    }
+    if (chips.isEmpty) return const SizedBox.shrink();
+    chips.sort((a, b) => a.$1.compareTo(b.$1));
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
@@ -832,15 +850,47 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ]),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 6, children: [
-          for (final t in soon) _dueSoonChip(t),
-          ...careerChips,
+          for (final c in chips) c.$2,
         ]),
       ]),
     );
   }
 
+  /// Hover text for a career item: what it is, when, and the notes you'd
+  /// otherwise open Career to read.
+  String _agendaTip(AgendaItem u) {
+    final e = u.event, a = u.app;
+    return [
+      u.title,
+      '${u.detail} · ${fmtWhen(isoDateTime(u.when))}',
+      if (e?.location != null) e!.location!,
+      if (e?.prep != null) e!.prep!,
+      if (a?.term != null) a!.term!,
+      if (a?.notes != null) a!.notes!,
+    ].join('\n');
+  }
+
+  /// Hover text for a task chip: the full title, its group, when, and progress.
+  String _taskTip(Task t) {
+    final g = store.groups.where((g) => g.key == t.group).firstOrNull;
+    final done = t.sub.where((s) => s.done).length;
+    return [
+      t.title,
+      [if (g != null) g.name, 'due ${store.dueLabel(t)}'].join(' · '),
+      if (t.sub.isNotEmpty) '$done/${t.sub.length} subtasks done',
+    ].join('\n');
+  }
+
+  /// Shows [message] on hover (desktop/web) or long-press (phone).
+  Widget _tip(String message, Widget child) => Tooltip(
+        message: message,
+        waitDuration: const Duration(milliseconds: 350),
+        child: child,
+      );
+
   /// A Career item in the due-soon banner; tapping it opens Career.
-  Widget _careerChip(String title, String detail) => Hoverable(
+  Widget _careerChip(String title, String detail, {required String tip}) =>
+      _tip(tip, Hoverable(
         onTap: _showCareer,
         borderRadius: BorderRadius.circular(6),
         child: Container(
@@ -866,10 +916,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 style: mono(size: 11, color: C.red).copyWith(fontWeight: FontWeight.w700)),
           ]),
         ),
-      );
+      ));
 
   // Tapping a due-soon chip jumps to that task (it only navigates — no edit).
-  Widget _dueSoonChip(Task t) => Hoverable(
+  Widget _dueSoonChip(Task t) => _tip(_taskTip(t), Hoverable(
         onTap: () => _openTask(t.id, keepView: true),
         borderRadius: BorderRadius.circular(6),
         child: Container(
@@ -893,7 +943,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               style: mono(size: 11, color: C.red).copyWith(fontWeight: FontWeight.w700)),
         ]),
         ),
-      );
+      ));
 
   // ---------------- toolbar / view switch / groups ----------------
   Widget _viewSwitch() {
