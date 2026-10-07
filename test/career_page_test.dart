@@ -26,7 +26,28 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.applications, hasLength(5));
     expect(store.trackEvents, hasLength(7));
-    expect(find.text('URGENT · NEXT 48 HOURS'), findsOneWidget);
+    // The overview: schedule on the left, goals on the right.
+    expect(find.text('MY GOALS'), findsOneWidget);
+    expect(find.text('PIPELINE'), findsOneWidget);
+    await tester.dragUntilVisible(find.text('DATE TBD'), find.byType(ListView).first,
+        const Offset(0, -300));
+    expect(find.text('Epic Games recruiter coaching session'), findsOneWidget);
+  });
+
+  testWidgets('a goal can be added from the overview', (tester) async {
+    store.applications = [];
+    store.trackEvents = [];
+    store.goals = [];
+    store.loadCareerStarter();
+    await pump(tester);
+    await tester.tap(find.widgetWithText(TextButton, 'Goal'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Goal *'), 'Apply to 40');
+    await tester.enterText(find.widgetWithText(TextField, 'Target *'), '40');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(store.goals.single.target, 40);
+    expect(find.text('Apply to 40'), findsOneWidget);
   });
 
   testWidgets('applications board and events list render', (tester) async {
@@ -43,7 +64,9 @@ void main() {
 
     await tester.tap(find.text('Events 7'));
     await tester.pumpAndSettle();
-    expect(find.text('HackRPI 2026'), findsOneWidget);
+    // The list builds lazily; scroll down to the undated group.
+    await tester.dragUntilVisible(find.text('DATE TBD'), find.byType(ListView).first,
+        const Offset(0, -300));
     expect(find.text('DATE TBD'), findsOneWidget, reason: 'the Epic coaching session');
   });
 
