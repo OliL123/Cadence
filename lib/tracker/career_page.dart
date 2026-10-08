@@ -80,15 +80,52 @@ class _CareerPageState extends State<CareerPage> {
       switch (csvKind(rows)) {
         case CsvKind.applications:
           final r = store.importApplications(applicationsFromCsv(rows));
-          msgs.add('${r.added} applications added, ${r.updated} updated');
+          msgs.add('${r.added} applications added, ${r.updated} updated'
+              '${r.skipped > 0 ? ', ${r.skipped} already here' : ''}');
         case CsvKind.events:
           final r = store.importEvents(eventsFromCsv(rows));
-          msgs.add('${r.added} events added, ${r.updated} updated');
+          msgs.add('${r.added} events added, ${r.updated} updated'
+              '${r.skipped > 0 ? ', ${r.skipped} already here' : ''}');
         case CsvKind.unknown:
           msgs.add('one file wasn\'t an applications or events CSV');
       }
     }
     _snack(msgs.join(' · '));
+  }
+
+  /// Collapse copies into one, after saying how many there are.
+  Future<void> _removeDuplicates() async {
+    final n = store.countDuplicates();
+    if (n.apps + n.events == 0) {
+      _snack('No duplicates found');
+      return;
+    }
+    String plural(int k, String w) => '$k $w${k == 1 ? '' : 's'}';
+    final what = [
+      if (n.apps > 0) plural(n.apps, 'duplicate application'),
+      if (n.events > 0) plural(n.events, 'duplicate event'),
+    ].join(' and ');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        backgroundColor: C.paper2,
+        title: const Text('Remove duplicates?'),
+        content: Text('Found $what. One copy of each is kept — the one '
+            'furthest along — and anything filled in only on another copy '
+            'is copied onto it first.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(d, true),
+            style: FilledButton.styleFrom(backgroundColor: C.green),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final r = store.removeDuplicates();
+    _snack('Removed ${r.apps + r.events} duplicate${r.apps + r.events == 1 ? '' : 's'}');
   }
 
   void _add() {
@@ -207,6 +244,8 @@ class _CareerPageState extends State<CareerPage> {
               _export(false);
             case 'imp':
               _import();
+            case 'dup':
+              _removeDuplicates();
           }
         },
         itemBuilder: (_) => [
@@ -221,6 +260,7 @@ class _CareerPageState extends State<CareerPage> {
           PopupMenuItem(
               value: 'imp',
               child: Text(csvio.csvIoUsesFiles ? 'Import CSV…' : 'Import CSV from clipboard')),
+          const PopupMenuItem(value: 'dup', child: Text('Remove duplicates…')),
         ],
       ),
     ]);

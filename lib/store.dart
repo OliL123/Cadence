@@ -1129,9 +1129,14 @@ class CadenceStore extends ChangeNotifier {
 
   /// Import rows from a CSV: a row whose id matches an existing item updates
   /// it (so export → edit in Excel → import works); anything else is added.
-  ({int added, int updated}) importApplications(List<Application> rows) {
-    var added = 0, updated = 0;
+  /// Rows whose id is already here update that item. Other rows are added —
+  /// unless one like it (same company, role and term) is already here or
+  /// earlier in the file, in which case it's skipped, so importing a sheet
+  /// twice or one that overlaps what's in the app never makes copies.
+  ({int added, int updated, int skipped}) importApplications(List<Application> rows) {
+    var added = 0, updated = 0, skipped = 0;
     final t = _now;
+    final seen = {for (final a in applications) appKey(a)};
     for (final r in rows) {
       final i = r.id == 0 ? -1 : applications.indexWhere((x) => x.id == r.id);
       if (i >= 0) {
@@ -1140,6 +1145,8 @@ class CadenceStore extends ChangeNotifier {
           ..origin ??= applications[i].origin
           ..uAt = t;
         updated++;
+      } else if (!seen.add(appKey(r))) {
+        skipped++;
       } else {
         applications.add(r
           ..id = _newId()
@@ -1149,12 +1156,15 @@ class CadenceStore extends ChangeNotifier {
       }
     }
     if (added + updated > 0) _changed();
-    return (added: added, updated: updated);
+    return (added: added, updated: updated, skipped: skipped);
   }
 
-  ({int added, int updated}) importEvents(List<TrackEvent> rows) {
-    var added = 0, updated = 0;
+  /// Like [importApplications]; an event is a copy when its name and start
+  /// date match.
+  ({int added, int updated, int skipped}) importEvents(List<TrackEvent> rows) {
+    var added = 0, updated = 0, skipped = 0;
     final t = _now;
+    final seen = {for (final e in trackEvents) eventKey(e)};
     for (final r in rows) {
       final i = r.id == 0 ? -1 : trackEvents.indexWhere((x) => x.id == r.id);
       if (i >= 0) {
@@ -1162,6 +1172,8 @@ class CadenceStore extends ChangeNotifier {
           ..origin ??= trackEvents[i].origin
           ..uAt = t;
         updated++;
+      } else if (!seen.add(eventKey(r))) {
+        skipped++;
       } else {
         trackEvents.add(r
           ..id = _newId()
@@ -1171,7 +1183,87 @@ class CadenceStore extends ChangeNotifier {
       }
     }
     if (added + updated > 0) _changed();
-    return (added: added, updated: updated);
+    return (added: added, updated: updated, skipped: skipped);
+  }
+
+  // ---------- duplicates ----------
+  static String _norm(String? s) =>
+      (s ?? '').trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+  /// What makes two applications the same one: company, role and term.
+  static String appKey(Application a) =>
+      '${_norm(a.company)}|${_norm(a.role)}|${_norm(a.term)}';
+
+  /// Two events are the same when the name and start day match.
+  static String eventKey(TrackEvent e) =>
+      '${_norm(e.name)}|${_norm(e.start).split(RegExp('[ t]')).first}';
+
+  /// How many copies [removeDuplicates] would remove right now.
+  ({int apps, int events}) countDuplicates() => (
+        apps: applications.length - {for (final a in applications) appKey(a)}.length,
+        events: trackEvents.length - {for (final e in trackEvents) eventKey(e)}.length,
+      );
+
+  /// Collapse copies (e.g. from importing the same sheet twice) into one.
+  /// The copy kept is the furthest along (status), then the fullest; any
+  /// field it has blank is filled from the others, so nothing typed into
+  /// one copy is lost. The rest are deleted with markers, so a sync can't
+  /// bring them back.
+  ({int apps, int events}) removeDuplicates() {
+    final a = _collapse<Application>('a', applications, appKey,
+        (x) => appStatuses.indexOf(x.status), (x) => x.toJson(), Application.fromJson);
+    final e = _collapse<TrackEvent>('e', trackEvents, eventKey,
+        (x) => eventStatuses.indexOf(x.status), (x) => x.toJson(), TrackEvent.fromJson);
+    applications = a.$1;
+    trackEvents = e.$1;
+    if (a.$2 + e.$2 > 0) _changed();
+    return (apps: a.$2, events: e.$2);
+  }
+
+  (List<X>, int) _collapse<X>(
+    String kind,
+    List<X> items,
+    String Function(X) key,
+    int Function(X) progress,
+    Map<String, dynamic> Function(X) toJ,
+    X Function(Map<String, dynamic>) fromJ,
+  ) {
+    bool blank(Object? v) => v == null || (v is String && v.trim().isEmpty);
+    int filled(X x) => toJ(x).values.where((v) => !blank(v)).length;
+
+    final groups = <String, List<X>>{};
+    for (final x in items) {
+      groups.putIfAbsent(key(x), () => []).add(x);
+    }
+    var removed = 0;
+    final out = <X>[];
+    final t = _now;
+    for (final x in items) {
+      final g = groups[key(x)]!;
+      if (g.length == 1) {
+        out.add(x);
+        continue;
+      }
+      if (!identical(g.first, x)) continue; // its group was emitted already
+      // Best copy: furthest along, then fullest, then the oldest (first).
+      final best = g.reduce((p, q) {
+        final dp = progress(q) - progress(p);
+        if (dp != 0) return dp > 0 ? q : p;
+        return filled(q) > filled(p) ? q : p;
+      });
+      final j = toJ(best);
+      for (final other in g) {
+        if (identical(other, best)) continue;
+        toJ(other).forEach((k, v) {
+          if (k != 'id' && k != 'u' && blank(j[k]) && !blank(v)) j[k] = v;
+        });
+        _markDeleted(kind, (toJ(other)['id'] as num).toInt());
+        removed++;
+      }
+      j['u'] = t; // the merged copy is the newest edit, everywhere
+      out.add(fromJ(j));
+    }
+    return (out, removed);
   }
 
   // ---------- groups ----------
