@@ -120,6 +120,18 @@ void main() {
     expect(s.score, 3, reason: 'points already earned are kept');
   });
 
+  test('a lower score from an older build never wins a merge', () {
+    final s = withTasks(4);
+    final ids = s.tasks.map((t) => t.id).toList();
+    s.awardMeld('daai', [ids[0], ids[1], ids[2], ids[3]]);
+    s.markScoreSynced(s.score);
+    // An old APK replaced the whole cloud row with its own, lower total.
+    final cloud = s.exportState()..['score'] = 1;
+    s.applyRemoteState(cloud);
+    expect(s.score, 4);
+    expect(s.pendingMergePush, isTrue, reason: 'republish the right total');
+  });
+
   test('draws favour tiles that can meld with the wall', () {
     final s = withTasks(1);
     final t = s.tasks.first;

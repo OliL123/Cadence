@@ -380,6 +380,13 @@ class CadenceStore extends ChangeNotifier {
       score = remoteScore + gain;
       push = true;
     }
+    // Points are never taken away in play, so a lower cloud total means an
+    // older build overwrote it (they replaced the whole row). Keep ours and
+    // republish it rather than accepting the drop.
+    if (score < lScore) {
+      score = lScore;
+      push = true;
+    }
     // Keep the scored-meld record too, or a meld still on the wall would
     // score again; and publish it if the cloud's record was missing some.
     for (final k in lMelds) {
