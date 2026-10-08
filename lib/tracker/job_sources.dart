@@ -29,6 +29,13 @@ class Posting {
   final String? category; // Simplify's: Software, AI/ML/Data, Quant, …
   final bool gameStudio; // from a followed board marked as a game studio
 
+  /// What the posting says about visa sponsorship (null = nothing found),
+  /// and whether its description has been read for it yet. Filled in at
+  /// parse time where the feed carries the description, otherwise later by
+  /// [FindService] fetching the job's own page data.
+  SponsorCheck? sponsor;
+  bool sponsorChecked;
+
   Posting({
     required this.key,
     required this.source,
@@ -40,6 +47,8 @@ class Posting {
     this.deadline,
     this.category,
     this.gameStudio = false,
+    this.sponsor,
+    this.sponsorChecked = false,
     Set<String>? countries,
   }) : countries = countries ?? countriesOf(locations);
 
@@ -55,6 +64,9 @@ class Posting {
         if (deadline != null) 'd': deadline,
         if (category != null) 'g': category,
         if (gameStudio) 'gs': true,
+        if (sponsor != null) 'sf': sponsor!.flag,
+        if (sponsor != null) 'sw': sponsor!.why,
+        if (sponsorChecked) 'sc': true,
       };
 
   factory Posting.fromJson(Map<String, dynamic> j) => Posting(
@@ -69,8 +81,178 @@ class Posting {
         deadline: j['d'] as String?,
         category: j['g'] as String?,
         gameStudio: j['gs'] == true,
+        sponsor: j['sf'] == null ? null : SponsorCheck('${j['sf']}', '${j['sw'] ?? ''}'),
+        sponsorChecked: j['sc'] == true,
       );
 }
+
+// ---------------------------------------------------------------- sponsorship
+
+/// What a posting says about visa sponsorship, with the words that said it.
+///   'citizens'   — US citizens (or permanent residents) only
+///   'clearance'  — needs a security clearance (in practice, citizens only)
+///   'no-sponsor' — won't sponsor / must be authorized without sponsorship
+///   'sponsors'   — says it sponsors, or welcomes CPT / international students
+/// Note for F-1 interns: "no sponsorship" often means no future H-1B, and
+/// CPT may still be fine — the flag is a prompt to check, not a verdict.
+class SponsorCheck {
+  final String flag;
+  final String why; // the sentence fragment that triggered it
+  const SponsorCheck(this.flag, this.why);
+
+  bool get isWarning => flag != 'sponsors';
+}
+
+const sponsorLabel = {
+  'citizens': 'US CITIZENS ONLY',
+  'clearance': 'CLEARANCE',
+  'no-sponsor': 'NO SPONSORSHIP',
+  'sponsors': 'SPONSORS',
+};
+
+// Most restrictive first: a posting that says both "citizens only" and "no
+// sponsorship" is a citizens-only posting.
+final _sponsorRules = <(String, RegExp)>[
+  ('citizens', RegExp(
+      r'(must|need to|required to) be (a )?(u\.?s\.?|united states) citizen'
+      r'|(u\.?s\.?|united states) citizen(s|ship)?( is| are)? (required|only)'
+      r'|citizenship (is )?required'
+      r'|only (open|available) to (u\.?s\.?|united states) citizens'
+      r'|(u\.?s\.?|united states) persons? (status )?(\([^)]{0,60}\) )?(is |are )?required'
+      r'|(citizen|green card holder|permanent resident)\)?[^.]{0,30}\b(is|are) required',
+      caseSensitive: false)),
+  ('clearance', RegExp(
+      r'(secret|top secret|ts/sci|security) clearance (is )?(required|needed)'
+      r'|(must|ability to|able to|eligible to) (obtain|hold|maintain)[^.]{0,40}clearance'
+      r'|active (secret|top secret|ts/sci)[^.]{0,20}clearance',
+      caseSensitive: false)),
+  ('no-sponsor', RegExp(
+      r"\b(not|unable|cannot|can[’']?t|won[’']?t|n[’']t|no longer)\b[^.]{0,40}\bsponsor"
+      r'|without (the need for )?(current or future |now or future )?(visa |employer |employment |immigration )?sponsorship'
+      r'|sponsorship (is )?not (available|offered|provided)'
+      r'|no (visa|immigration|employment) sponsorship'
+      r'|not eligible for (visa |immigration )?sponsorship'
+      r'|requir(e|es|ing) (visa |employment |immigration )?sponsorship[^.]{0,40}\b(not|ineligible)\b'
+      r'|\b(cpt|opt|f-?1)\b[^.]{0,30}\bnot (eligible|accepted|considered)',
+      caseSensitive: false)),
+  // Positive only in a visa context ("we sponsor hackathons" isn't one).
+  ('sponsors', RegExp(
+      r'\b(will|can|do|does|able to|happy to)\b[^.]{0,25}\bsponsor[^.]{0,40}\b(visa|h-?1b|immigration|work authori[sz]ation|work permit)'
+      r'|(visa|immigration) sponsorship (is )?(available|offered|provided)'
+      r'|\bcpt\b[^.]{0,20}\b(accepted|welcome|eligible|supported)'
+      r'|open to (international|f-?1) students',
+      caseSensitive: false)),
+];
+
+String _entities(String s) => s
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+    .replaceAll(RegExp('&(rsquo|lsquo|#8217|#8216);'), "'")
+    .replaceAll(RegExp('&(rdquo|ldquo|#8220|#8221);'), '"')
+    .replaceAll(RegExp('&(nbsp|#160);'), ' ');
+
+/// Plain text from a description that may be HTML, or HTML escaped inside
+/// JSON (Greenhouse's `content`, whose own entities are escaped again — so
+/// entities are decoded twice). Paragraph, list-item and line breaks become
+/// sentence breaks: bullet points rarely end in a full stop, and without the
+/// break a "not … sponsor" rule could match across two unrelated bullets.
+String descriptionText(String raw) => _entities(_entities(raw))
+    .replaceAll(RegExp(r'</?(p|li|ul|ol|div|br|tr|h[1-6])\b[^>]*>', caseSensitive: false), '. ')
+    .replaceAll(RegExp(r'<[^>]*>'), ' ')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .replaceAll(RegExp(r'(\s*\.\s*){2,}'), '. ')
+    .replaceAll(RegExp(r'^[\s.]+'), '')
+    // "U.S." isn't the end of a sentence (the rules accept "US" too).
+    .replaceAll(RegExp(r'\bU\.S\.(A\.)?', caseSensitive: false), 'US')
+    .trim();
+
+/// Read a description for what it says about sponsorship; null if nothing.
+SponsorCheck? scanSponsorship(String description) {
+  final text = descriptionText(description);
+  for (final (flag, rule) in _sponsorRules) {
+    final m = rule.firstMatch(text);
+    if (m == null) continue;
+    // Quote the sentence it came from, trimmed to a readable length.
+    var a = text.lastIndexOf(RegExp(r'[.!?•]\s'), m.start);
+    a = a < 0 ? 0 : a + 2;
+    var b = text.indexOf(RegExp(r'[.!?]'), m.end);
+    b = b < 0 ? text.length : b + 1;
+    var why = text.substring(a, b).trim();
+    if (why.length > 220) why = '${why.substring(0, 217)}…';
+    return SponsorCheck(flag, why);
+  }
+  return null;
+}
+
+/// The more restrictive of two findings (citizens > clearance > no-sponsor >
+/// sponsors > nothing): a description can only add a restriction, never
+/// talk one away.
+SponsorCheck? stricterSponsor(SponsorCheck? a, SponsorCheck? b) {
+  const rank = {'citizens': 4, 'clearance': 3, 'no-sponsor': 2, 'sponsors': 1};
+  if (a == null) return b;
+  if (b == null) return a;
+  return (rank[b.flag] ?? 0) > (rank[a.flag] ?? 0) ? b : a;
+}
+
+/// SimplifyJobs' own sponsorship field.
+SponsorCheck? simplifySponsor(String? field) => switch (field) {
+      'Does Not Offer Sponsorship' => const SponsorCheck('no-sponsor', 'SimplifyJobs: does not offer sponsorship'),
+      'U.S. Citizenship is Required' => const SponsorCheck('citizens', 'SimplifyJobs: U.S. citizenship is required'),
+      'Offers Sponsorship' => const SponsorCheck('sponsors', 'SimplifyJobs: offers sponsorship'),
+      _ => null,
+    };
+
+/// Where to read a posting's description, when Find can: the job's own
+/// Greenhouse/Lever API entry, or (Ashby) its company board. Followed Lever
+/// and Ashby boards are read at parse time, so they don't need this.
+({String url, String ats, String? id})? descriptionSource(Posting p) {
+  final key = p.key.split(':');
+  if (key.first == 'gh' && key.length == 3) {
+    return (url: 'https://boards-api.greenhouse.io/v1/boards/${key[1]}/jobs/${key[2]}', ats: 'greenhouse', id: null);
+  }
+  if (p.source != 'simplify') return null;
+  final u = p.url;
+  final gh = RegExp(r'greenhouse\.io/([\w-]+)/jobs/(\d+)').firstMatch(u);
+  if (gh != null) {
+    return (url: 'https://boards-api.greenhouse.io/v1/boards/${gh[1]}/jobs/${gh[2]}', ats: 'greenhouse', id: null);
+  }
+  final lv = RegExp(r'jobs(?:\.eu)?\.lever\.co/([\w-]+)/([0-9a-f-]{36})').firstMatch(u);
+  if (lv != null) {
+    return (url: 'https://api.lever.co/v0/postings/${lv[1]}/${lv[2]}', ats: 'lever', id: null);
+  }
+  final ab = RegExp(r'jobs\.ashbyhq\.com/([\w%.-]+)/([0-9a-f-]{36})').firstMatch(u);
+  if (ab != null) {
+    return (url: 'https://api.ashbyhq.com/posting-api/job-board/${ab[1]}', ats: 'ashby', id: ab[2]);
+  }
+  return null;
+}
+
+/// The description text in a fetched [descriptionSource] response.
+String? descriptionFrom(String ats, dynamic json, {String? id}) {
+  switch (ats) {
+    case 'greenhouse':
+      return json is Map ? json['content'] as String? : null;
+    case 'lever':
+      return json is Map ? _leverText(json) : null;
+    case 'ashby':
+      final jobs = json is Map ? json['jobs'] as List? : null;
+      for (final j in jobs ?? const []) {
+        if (j is Map && j['id'] == id) return (j['descriptionPlain'] ?? j['descriptionHtml']) as String?;
+      }
+      return null;
+  }
+  return null;
+}
+
+String _leverText(Map j) => [
+      j['descriptionPlain'] ?? j['description'] ?? '',
+      for (final l in (j['lists'] as List? ?? const []))
+        if (l is Map) '${l['text'] ?? ''}. ${l['content'] ?? ''}',
+      j['additionalPlain'] ?? j['additional'] ?? '',
+    ].join(' ');
 
 // ---------------------------------------------------------------- countries
 
@@ -342,6 +524,7 @@ class FindPrefs {
   int maxAgeDays; // 0 = any age
   bool useSimplify;
   bool hideAdvancedDegree; // PhD/MBA-only roles
+  bool hideNoSponsor; // postings that say no sponsorship / citizens only / clearance
   List<FollowedBoard> boards;
 
   FindPrefs({
@@ -351,6 +534,7 @@ class FindPrefs {
     this.maxAgeDays = 60,
     this.useSimplify = true,
     this.hideAdvancedDegree = true,
+    this.hideNoSponsor = false,
     List<FollowedBoard>? boards,
   })  : countries = countries ?? ['US', 'HK', 'MY', 'SG', 'CN', 'AU'],
         interests = interests ?? ['game', 'swe', 'ml'],
@@ -363,6 +547,7 @@ class FindPrefs {
         'maxAge': maxAgeDays,
         'simplify': useSimplify,
         'noAdv': hideAdvancedDegree,
+        'noSp': hideNoSponsor,
         'boards': boards.map((b) => b.toJson()).toList(),
       };
 
@@ -373,6 +558,7 @@ class FindPrefs {
         maxAgeDays: (j['maxAge'] as num?)?.toInt() ?? 60,
         useSimplify: j['simplify'] as bool? ?? true,
         hideAdvancedDegree: j['noAdv'] as bool? ?? true,
+        hideNoSponsor: j['noSp'] as bool? ?? false,
         boards: (j['boards'] as List?)
             ?.map((b) => FollowedBoard.fromJson(Map<String, dynamic>.from(b as Map)))
             .toList(),
@@ -414,6 +600,9 @@ DateTime? _epochS(dynamic v) =>
       url: '${r['url'] ?? ''}',
       posted: _epochS(r['date_posted']),
       category: r['category'] as String?,
+      // Simplify's own field, when it says something; the description (if
+      // Find can read it) may still say more.
+      sponsor: simplifySponsor(r['sponsorship'] as String?),
     ));
   }
   return (open: open, closed: closed);
@@ -437,7 +626,7 @@ bool _fitsTerm(String title, String term) {
 List<Posting> parseBoard(FollowedBoard b, dynamic raw, {String term = 'Summer 2027'}) {
   final out = <Posting>[];
   void add(String id, String title, List<String> locs, String url, DateTime? posted,
-      {String? deadline, Set<String>? countries, String? commitment}) {
+      {String? deadline, Set<String>? countries, String? commitment, String? description}) {
     final student = _studentRole.hasMatch(title) || _studentRole.hasMatch(commitment ?? '');
     if (!student || !_fitsTerm(title, term)) return;
     final c = countries ?? countriesOf(locs);
@@ -452,6 +641,10 @@ List<Posting> parseBoard(FollowedBoard b, dynamic raw, {String term = 'Summer 20
       posted: posted,
       deadline: deadline,
       gameStudio: b.game,
+      // Lever and Ashby feeds carry the description; Greenhouse's list
+      // doesn't (FindService fetches those per job).
+      sponsor: description == null ? null : scanSponsorship(description),
+      sponsorChecked: description != null,
     ));
   }
 
@@ -483,6 +676,7 @@ List<Posting> parseBoard(FollowedBoard b, dynamic raw, {String term = 'Summer 20
           j['createdAt'] is num ? DateTime.fromMillisecondsSinceEpoch((j['createdAt'] as num).toInt()) : null,
           countries: {?iso, ...countriesOf(locs)}..remove(iso == null ? '' : 'OTHER'),
           commitment: cat['commitment'] as String?,
+          description: _leverText(j as Map),
         );
       }
     case 'ashby':
@@ -503,6 +697,7 @@ List<Posting> parseBoard(FollowedBoard b, dynamic raw, {String term = 'Summer 20
           countries: {...countriesOf(locs), if (addr != null) countryOf('$addr')}
             ..remove(locs.isEmpty && addr == null ? '' : 'OTHER'),
           commitment: j['employmentType'] as String?,
+          description: (j['descriptionPlain'] ?? j['descriptionHtml']) as String?,
         );
       }
   }
@@ -620,6 +815,7 @@ int findScore(Posting p, FindPrefs prefs, FindTaste taste, {DateTime? now}) {
 bool findMatches(Posting p, FindPrefs prefs, {DateTime? now}) {
   if (!p.countries.any(prefs.countries.contains)) return false;
   if (!interestsOf(p).any(prefs.interests.contains)) return false;
+  if (prefs.hideNoSponsor && (p.sponsor?.isWarning ?? false)) return false;
   if (prefs.maxAgeDays > 0 && p.posted != null) {
     final n = now ?? DateTime.now();
     if (n.difference(p.posted!).inDays > prefs.maxAgeDays) return false;

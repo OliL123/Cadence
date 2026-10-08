@@ -39,7 +39,11 @@ class _FindTabState extends State<_FindTab> {
     final p = FindPrefs.fromJson(store.findPrefs.toJson());
     change(p);
     store.setFindPrefs(p);
-    if (refetch) svc.refresh();
+    if (refetch) {
+      svc.refresh();
+    } else {
+      svc.checkSponsorship(); // newly matching postings may be unread
+    }
   }
 
   static Color interestColor(String i) => switch (i) {
@@ -267,6 +271,12 @@ class _FindTabState extends State<_FindTab> {
               minimumSize: const Size(0, 34)),
         ),
         Text(status, style: mono(size: 10.5, color: C.ink3)),
+        if (svc.pendingChecks > 0)
+          Tooltip(
+            message: 'Reading job descriptions for what they say about visa sponsorship',
+            child: Text('checking sponsorship · ${svc.pendingChecks} left',
+                style: mono(size: 10.5, color: C.navy)),
+          ),
         if (svc.errors.isNotEmpty)
           Tooltip(
             message: svc.errors.entries.map((e) => '${e.key}: ${e.value}').join('\n'),
@@ -345,6 +355,11 @@ class _FindTabState extends State<_FindTab> {
                 () => _setPrefs((p) => p.maxAgeDays = e.key),
                 color: C.navy),
         ]),
+        _filterRow('VISA', [
+          _chip('Hide no-sponsorship / citizens-only', prefs.hideNoSponsor,
+              () => _setPrefs((p) => p.hideNoSponsor = !p.hideNoSponsor),
+              color: C.red),
+        ]),
         _filterRow('SOURCES', [
           _chip('SimplifyJobs (US · CA · UK)', prefs.useSimplify,
               () => _setPrefs((p) => p.useSimplify = !p.useSimplify, refetch: true),
@@ -385,6 +400,7 @@ class _FindTabState extends State<_FindTab> {
                     prefs.countries.join(' · '),
                     prefs.interests.map((i) => findInterestLabel[i]).join(', '),
                     prefs.maxAgeDays == 0 ? 'any time' : 'last ${prefs.maxAgeDays} days',
+                    if (prefs.hideNoSponsor) 'hiding no-sponsorship',
                   ].join('  —  '),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -395,6 +411,21 @@ class _FindTabState extends State<_FindTab> {
             ]),
           ),
         ),
+      );
+
+  /// What the posting says about sponsorship, with the sentence on hover.
+  Widget _sponsorMark(SponsorCheck s) => Tooltip(
+        message: s.isWarning
+            ? '${s.why}\n\nFor F-1 interns this often means no future H-1B; CPT may still be '
+                'fine — worth checking before applying.'
+            : s.why,
+        child: s.isWarning
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.warning_amber_rounded, size: 13, color: C.red),
+                const SizedBox(width: 2),
+                _pill(sponsorLabel[s.flag]!, C.red, filled: true),
+              ])
+            : _pill(sponsorLabel[s.flag]!, C.green),
       );
 
   /// A company: its best role as a full card, and its other roles collapsed
@@ -479,6 +510,10 @@ class _FindTabState extends State<_FindTab> {
                       if (svc.isNew(p)) ...[
                         const SizedBox(width: 6),
                         _pill('NEW', C.green, filled: true),
+                      ],
+                      if (p.sponsor != null) ...[
+                        const SizedBox(width: 6),
+                        _sponsorMark(p.sponsor!),
                       ],
                     ]),
                     const SizedBox(height: 2),
@@ -568,6 +603,11 @@ class _FindTabState extends State<_FindTab> {
               scrollDirection: Axis.horizontal,
               physics: const NeverScrollableScrollPhysics(),
               child: Row(children: [
+                if (p.sponsor != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 5),
+                    child: _sponsorMark(p.sponsor!),
+                  ),
                 for (final i in ints.take(2))
                   Padding(
                     padding: const EdgeInsets.only(right: 5),

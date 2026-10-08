@@ -1293,6 +1293,13 @@ class CadenceStore extends ChangeNotifier {
       origin: 'cadence',
       postingId: p.key,
       posted: p.posted == null ? null : isoDate(p.posted!),
+      // What Find read about sponsorship, so the application shows it too.
+      sponsorship: switch (p.sponsor?.flag) {
+        'citizens' || 'clearance' || 'no-sponsor' => 'no-sponsorship',
+        'sponsors' => 'cpt-ok',
+        _ => 'unclear',
+      },
+      notes: p.sponsor == null ? null : 'Posting says: ${p.sponsor!.why}',
       uAt: _now,
     );
     applications.add(a);

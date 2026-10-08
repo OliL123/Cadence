@@ -88,6 +88,7 @@ class FindService extends ChangeNotifier {
       await refresh();
     } else {
       notifyListeners();
+      unawaited(checkSponsorship()); // finish any reads a closed tab left
     }
   }
 
@@ -158,6 +159,15 @@ class FindService extends ChangeNotifier {
       if (failedPrefixes.any(p.key.startsWith)) byKey.putIfAbsent(p.key, () => p);
     }
 
+    // Keep what earlier description reads found: the feeds don't carry it.
+    final prev = {for (final p in postings) p.key: p};
+    for (final p in byKey.values) {
+      final old = prev[p.key];
+      if (old != null && old.sponsorChecked && !p.sponsorChecked) {
+        p.sponsor = stricterSponsor(p.sponsor, old.sponsor);
+        p.sponsorChecked = true;
+      }
+    }
     postings = byKey.values.toList();
     final now = DateTime.now().millisecondsSinceEpoch;
     for (final p in postings) {
@@ -177,6 +187,67 @@ class FindService extends ChangeNotifier {
     loading = false;
     notifyListeners();
     await _save();
+    unawaited(checkSponsorship());
+  }
+
+  bool _checking = false;
+
+  /// How many matching postings still have an unread description.
+  int pendingChecks = 0;
+
+  /// Read the descriptions of postings that match your filters (and haven't
+  /// been read) for what they say about sponsorship — in the background, a
+  /// few at a time, so the inbox shows first and the flags fill in.
+  Future<void> checkSponsorship({int max = 250}) async {
+    if (_checking) return;
+    _checking = true;
+    try {
+      // Which postings to read: those your other filters keep (the
+      // no-sponsorship filter itself needs the answer, so it's ignored here).
+      final prefs = FindPrefs.fromJson(store.findPrefs.toJson())..hideNoSponsor = false;
+      final todo = postings
+          .where((p) => !p.sponsorChecked && descriptionSource(p) != null && findMatches(p, prefs))
+          .take(max)
+          .toList();
+      pendingChecks = todo.length;
+      if (todo.isEmpty) return;
+      notifyListeners();
+      // One download per Ashby board, shared by its postings.
+      final boards = <String, Future<dynamic>>{};
+      var sinceRepaint = 0;
+      Future<void> read(Posting p) async {
+        final src = descriptionSource(p)!;
+        try {
+          final json = src.ats == 'ashby'
+              ? await boards.putIfAbsent(src.url, () => _getJson(src.url))
+              : await _getJson(src.url);
+          final text = descriptionFrom(src.ats, json, id: src.id);
+          if (text != null) p.sponsor = stricterSponsor(p.sponsor, scanSponsorship(text));
+          p.sponsorChecked = true; // read (or the job page had no description)
+        } catch (_) {
+          // offline, or the job was taken down: try again next time
+        }
+        pendingChecks--;
+        if (++sinceRepaint >= 8) {
+          sinceRepaint = 0;
+          notifyListeners();
+        }
+      }
+
+      final queue = todo.reversed.toList(); // removeLast takes them in order
+      Future<void> worker() async {
+        while (queue.isNotEmpty) {
+          await read(queue.removeLast());
+        }
+      }
+
+      await Future.wait([for (var i = 0; i < 6; i++) worker()]);
+      await _save();
+    } finally {
+      _checking = false;
+      pendingChecks = 0;
+      notifyListeners();
+    }
   }
 
   /// Check a careers link before following it: the board, with its name if
