@@ -101,7 +101,7 @@ void main() {
     await tester.tap(find.descendant(of: row, matching: find.byTooltip('Mark applied')));
     await tester.pumpAndSettle();
     expect(store.applications.firstWhere((a) => a.role == 'Role 2').status, 'applied');
-    expect(find.text('5 ROLES'), findsOneWidget);
+    expect(find.text('5 roles · tap one to edit'), findsOneWidget);
     expect(find.text('UNDO'), findsOneWidget);
 
     await tester.tap(find.text('UNDO'));

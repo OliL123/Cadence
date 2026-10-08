@@ -38,6 +38,7 @@ Color statusColor(String s) => switch (s) {
       'applied' => C.navy,
       'oa' => C.mustard,
       'interview' || 'final-round' => C.teal,
+      'to-apply' => C.olive,
       'offer' => C.green,
       'rejected' => C.red,
       _ => C.ink3,
@@ -1055,7 +1056,9 @@ class _AppsTab extends StatelessWidget {
       return InkWell(
         onTap: () => page._update(() => page._appBoard = board),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          width: 86,
+          height: 31.2,
+          alignment: Alignment.center,
           color: on ? C.green : C.paper,
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(icon, size: 15, color: on ? C.creamTxt : C.ink2),
@@ -1089,12 +1092,59 @@ class _AppsTab extends StatelessWidget {
   ];
   static const _foldedByDefault = {'rejected', 'ghosted', 'withdrawn'};
 
-  /// Full width, one section per status, cards flowing across as many
-  /// columns as fit — instead of hundreds stacked in one narrow column.
-  /// Rows are built lazily.
+  /// How much a company's roles deserve attention right now. Marked
+  /// important beats everything; then a deadline closing soon (or just
+  /// missed), a follow-up due, sponsorship that works on F-1, a 2027 term, and
+  /// things you added yourself over bulk imports. "No sponsorship" sinks.
+  static int relevance(List<Application> g) {
+    final now = DateTime.now();
+    var best = -1000;
+    for (final a in g) {
+      var s = 0;
+      final dl = parseWhen(a.deadline, endOfDay: true);
+      if (dl != null && a.status == 'to-apply') {
+        final days = dl.difference(now).inHours / 24;
+        s += days < -7
+            ? 0
+            : days < 0
+                ? 45
+                : days <= 3
+                    ? 60
+                    : days <= 7
+                        ? 45
+                        : days <= 14
+                            ? 25
+                            : days <= 30
+                                ? 10
+                                : 0;
+      }
+      final next = parseWhen(a.nextActionDate, endOfDay: true);
+      if (next != null && !next.isAfter(now.add(const Duration(days: 1)))) s += 40;
+      if (a.sponsorship == 'cpt-ok') s += 20;
+      if (a.sponsorship == 'no-sponsorship') s -= 30;
+      if ((a.term ?? '').contains('2027')) s += 10;
+      if (a.from == 'you') s += 15; // added by you
+      if (s > best) best = s;
+    }
+    return best +
+        (g.length > 5 ? 10 : g.length * 2) +
+        (store.isPinned(g.first.company) ? 1000 : 0);
+  }
+
+  /// [groups] most relevant first; equal ones keep their order.
+  static List<List<Application>> _byRelevance(List<List<Application>> groups) {
+    final scored = [for (var i = 0; i < groups.length; i++) (i, relevance(groups[i]), groups[i])];
+    scored.sort((a, b) => b.$2 != a.$2 ? b.$2.compareTo(a.$2) : a.$1.compareTo(b.$1));
+    return [for (final s in scored) s.$3];
+  }
+
+  /// Full width, one section per status, most relevant first. The important
+  /// companies (marked, or closing soon) get big cards down the left with
+  /// the rest flowing in smaller cards beside and below them — so a long
+  /// list has landmarks instead of one even wall. Rows are built lazily.
   Widget _listView(BuildContext context, List<Application> apps) =>
       LayoutBuilder(builder: (context, c) {
-        final perRow = (c.maxWidth / 300).floor().clamp(1, 6);
+        final cols = (c.maxWidth / 250).floor().clamp(1, 8);
         final searching = page._appQuery.trim().isNotEmpty;
         final rows = <Widget Function()>[];
         for (final s in _listOrder) {
@@ -1105,21 +1155,7 @@ class _AppsTab extends StatelessWidget {
               (_foldedByDefault.contains(s) != page._toggledSections.contains(s));
           rows.add(() => _sectionHeader(s, inStatus.length, folded));
           if (folded) continue;
-          final groups = _groupsOf(inStatus);
-          for (var i = 0; i < groups.length; i += perRow) {
-            final chunk = groups.sublist(i, i + perRow > groups.length ? groups.length : i + perRow);
-            rows.add(() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  for (var k = 0; k < perRow; k++)
-                    Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(right: k < perRow - 1 ? 10 : 0),
-                        child: k < chunk.length
-                            ? _groupCard(context, s, chunk[k])
-                            : const SizedBox.shrink(),
-                      ),
-                    ),
-                ]));
-          }
+          _layoutSection(context, s, _byRelevance(_groupsOf(inStatus)), cols, rows);
         }
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
@@ -1127,6 +1163,89 @@ class _AppsTab extends StatelessWidget {
           itemBuilder: (_, i) => rows[i](),
         );
       });
+
+  void _layoutSection(BuildContext context, String s, List<List<Application>> groups, int cols,
+      List<Widget Function()> rows) {
+    bool isOpen(List<Application> g) =>
+        g.length > 1 && page._openCompanies.contains(_companyKey(s, g));
+    // Featured: everything marked important, plus up to 6 that score as
+    // pressing — and in a long section at least the top 2, to break it up.
+    var featured = groups
+        .where((g) => store.isPinned(g.first.company) || relevance(g) >= 40)
+        .take(groups.where((g) => store.isPinned(g.first.company)).length + 6)
+        .toList();
+    if (featured.isEmpty && groups.length >= 8) featured = groups.take(2).toList();
+    final small = groups.where((g) => !featured.contains(g)).toList();
+
+    var next = 0; // into [small]
+    final deferred = <List<Application>>[]; // opened small cards: full width
+    List<List<Application>> takeSmall(int n) {
+      final out = <List<Application>>[];
+      while (out.length < n && next < small.length) {
+        final g = small[next++];
+        isOpen(g) ? deferred.add(g) : out.add(g);
+      }
+      return out;
+    }
+
+    void flushDeferred() {
+      for (final g in deferred) {
+        rows.add(() => _companyCard(context, s, g));
+      }
+      deferred.clear();
+    }
+
+    for (final f in featured) {
+      if (isOpen(f)) {
+        rows.add(() => _companyCard(context, s, f));
+        continue;
+      }
+      if (cols < 3) {
+        // Phone: the big card alone, full width.
+        rows.add(() => _bigCard(context, s, f));
+        continue;
+      }
+      // Big card over two columns, two rows of small cards beside it.
+      final side = cols - 2;
+      final top = takeSmall(side), bottom = takeSmall(side);
+      rows.add(() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              flex: 2,
+              child: Padding(
+                  padding: const EdgeInsets.only(right: 10), child: _bigCard(context, s, f)),
+            ),
+            Expanded(
+              flex: side,
+              child: Column(children: [
+                _smallRow(context, s, top, side),
+                _smallRow(context, s, bottom, side),
+              ]),
+            ),
+          ]));
+      flushDeferred();
+    }
+    // The rest, in even rows.
+    while (next < small.length) {
+      final chunk = takeSmall(cols);
+      if (chunk.isNotEmpty) rows.add(() => _smallRow(context, s, chunk, cols));
+      flushDeferred();
+    }
+    flushDeferred();
+  }
+
+  /// [cols] equal slots; empty slots keep the grid even.
+  Widget _smallRow(BuildContext context, String s, List<List<Application>> gs, int cols) =>
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        for (var k = 0; k < cols; k++)
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: k < cols - 1 ? 10 : 0),
+              child: k < gs.length
+                  ? _groupCard(context, s, gs[k])
+                  : const SizedBox(height: _cardH + 10),
+            ),
+          ),
+      ]);
 
   Widget _sectionHeader(String status, int count, bool folded) => Padding(
         padding: const EdgeInsets.only(top: 6, bottom: 8),
@@ -1138,10 +1257,12 @@ class _AppsTab extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-                color: statusColor(status), borderRadius: BorderRadius.circular(7)),
+                color: statusColor(status),
+                borderRadius: BorderRadius.circular(7),
+                boxShadow: const [BoxShadow(color: Color(0x24462D0F), offset: Offset(2, 2))]),
             child: Row(children: [
               Text(appStatusLabel[status]!.toUpperCase(),
-                  style: disp(size: 13, w: FontWeight.w700, color: C.creamTxt)),
+                  style: disp(size: 14, w: FontWeight.w700, color: C.creamTxt)),
               const SizedBox(width: 8),
               Text('$count', style: mono(size: 11, color: C.creamTxt)),
               const Spacer(),
@@ -1161,7 +1282,8 @@ class _AppsTab extends StatelessWidget {
           for (final o in options) PopupMenuItem(value: o, child: Text(labels?[o] ?? o)),
         ],
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             color: value == null ? C.paper : C.green,
             border: Border.all(color: value == null ? C.line : C.green, width: 1.4),
@@ -1202,7 +1324,7 @@ class _AppsTab extends StatelessWidget {
   /// single card that opens to list them, so a big imported list reads as
   /// "who" first. Built lazily, since a column can hold hundreds.
   Widget _grouped(BuildContext context, String status, List<Application> apps) {
-    final groups = _groupsOf(apps);
+    final groups = _byRelevance(_groupsOf(apps));
     return ListView.builder(
       itemCount: groups.length,
       itemBuilder: (context, i) => _groupCard(context, status, groups[i]),
@@ -1221,143 +1343,522 @@ class _AppsTab extends StatelessWidget {
   Widget _groupCard(BuildContext context, String status, List<Application> g) =>
       g.length == 1 ? _appCard(context, g.first) : _companyCard(context, status, g);
 
-  Widget _tick(Application a, {double size = 20}) => a.status != 'to-apply'
-      ? const SizedBox.shrink()
+  // ---- cards ---------------------------------------------------------------
+  // Enamel-signboard cards like the Tasks tab: a double border in the track's
+  // colour, a hard offset shadow, and a lettered tile for the company. Closed
+  // cards share one height so rows line up, and the controls on the right sit
+  // in fixed 30px slots so every card's buttons align.
+
+  static const _cardH = 118.0;
+  static const _slot = BoxConstraints.tightFor(width: 30, height: 30);
+
+  /// A track's colour, so a board of hundreds still reads at a glance.
+  static Color trackColor(String track) => switch (track) {
+        'game' => C.red,
+        'swe' => C.navy,
+        'ai/ml' => C.plum,
+        'early-program' => C.teal,
+        _ => C.mustard,
+      };
+
+  /// The colour most of [roles] share.
+  static Color _mainColor(List<Application> roles) {
+    final n = <String, int>{};
+    for (final r in roles) {
+      n[r.track] = (n[r.track] ?? 0) + 1;
+    }
+    return trackColor(n.entries.reduce((a, b) => b.value > a.value ? b : a).key);
+  }
+
+  static String _companyKey(String status, List<Application> g) =>
+      '$status|${g.first.company.trim().toLowerCase()}';
+
+  Widget _tile({
+    required Color color,
+    required Widget child,
+    VoidCallback? onTap,
+    double? height,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Material(
+          type: MaterialType.transparency,
+          child: Ink(
+            height: height,
+            decoration: BoxDecoration(
+              color: C.paper2,
+              border: Border.all(color: color, width: 2),
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: const [BoxShadow(color: Color(0x22462D0F), offset: Offset(2, 2))],
+            ),
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                margin: const EdgeInsets.all(3),
+                padding: const EdgeInsets.fromLTRB(8, 7, 3, 7),
+                decoration: BoxDecoration(
+                  border: Border.all(color: color.withValues(alpha: .5), width: 1.2),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: child,
+              ),
+            ),
+          ),
+        ),
+      );
+
+  /// The company's initial on a filled tile in [color].
+  Widget _monogram(String company, Color color) => Container(
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: const [BoxShadow(color: Color(0x33462D0F), offset: Offset(1.5, 1.5))],
+        ),
+        child: Text(company.trim().isEmpty ? '?' : company.trim()[0].toUpperCase(),
+            style: disp(size: 17, w: FontWeight.w700, color: C.creamTxt)),
+      );
+
+  /// ✓ for a to-apply role (marks it applied); an empty slot otherwise, so
+  /// the buttons beside it never shift.
+  Widget _tick(Application a) => a.status != 'to-apply'
+      ? const SizedBox(width: 30, height: 30)
       : IconButton(
           tooltip: 'Mark applied',
-          visualDensity: VisualDensity.compact,
           padding: EdgeInsets.zero,
-          constraints: BoxConstraints.tightFor(width: size + 10, height: size + 10),
-          icon: Icon(Icons.check_circle_outline, size: size, color: C.green),
+          constraints: _slot,
+          icon: const Icon(Icons.check_circle_outline, size: 20, color: C.green),
           onPressed: () => page._markApplied(a),
         );
 
-  Widget _companyCard(BuildContext context, String status, List<Application> roles) {
-    final key = '$status|${roles.first.company.trim().toLowerCase()}';
-    final open = page._openCompanies.contains(key);
-    void toggle() => page._update(() {
-          if (!page._openCompanies.remove(key)) page._openCompanies.add(key);
-        });
-    return _card(
-      onTap: toggle,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Expanded(
-            child: Text(roles.first.company,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: C.ink)),
-          ),
-          _pill('${roles.length} ROLES', C.navy),
-          Icon(open ? Icons.expand_less : Icons.expand_more, size: 20, color: C.ink3),
-        ]),
-        if (!open)
-          Padding(
-            padding: const EdgeInsets.only(top: 3),
-            child: Text(
-              roles.map((r) => r.role.isEmpty ? 'untitled role' : r.role).take(3).join(' · ') +
-                  (roles.length > 3 ? ' …' : ''),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: C.ink2),
-            ),
-          )
-        else ...[
-          const SizedBox(height: 6),
-          for (final r in roles)
-            InkWell(
-              onTap: () => showApplicationForm(context, existing: r),
-              borderRadius: BorderRadius.circular(5),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: Row(children: [
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(r.role.isEmpty ? 'Untitled role' : r.role,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12.5, color: C.ink)),
-                      if (r.term != null || r.deadline != null || r.location != null)
-                        Text(
-                            [
-                              if (r.term != null) r.term!,
-                              if (r.location != null) r.location!,
-                              if (r.deadline != null) 'closes ${fmtWhen(r.deadline)}',
-                            ].join(' · '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: mono(size: 10, color: C.ink3)),
-                    ]),
-                  ),
-                  _tick(r, size: 18),
-                ]),
-              ),
-            ),
+  Widget _menu(Application a, {bool light = false}) => PopupMenuButton<String>(
+        tooltip: 'Move to…',
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 160),
+        child: SizedBox(
+            width: 30,
+            height: 30,
+            child: Icon(Icons.more_horiz, size: 18, color: light ? C.creamTxt : C.ink3)),
+        onSelected: (v) {
+          if (v == '__link') {
+            csvio.openLink(a.link!);
+          } else if (v == '__pin') {
+            page._update(() => store.togglePin(a.company));
+          } else {
+            store.setAppStatus(a, v);
+          }
+        },
+        itemBuilder: (_) => [
+          if (a.link != null) const PopupMenuItem(value: '__link', child: Text('Open posting')),
+          PopupMenuItem(
+              value: '__pin',
+              child: Text(store.isPinned(a.company)
+                  ? '☆ Unmark ${a.company} important'
+                  : '★ Mark ${a.company} important')),
+          for (final s in appStatuses)
+            if (s != a.status) PopupMenuItem(value: s, child: Text('Move to ${appStatusLabel[s]}')),
         ],
+      );
+
+  /// Pills that may not all fit: clipped at the card edge, never overflowing.
+  Widget _pillRow(List<Widget> pills, {Widget? end}) => Row(children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const NeverScrollableScrollPhysics(),
+            child: Row(children: [
+              for (final p in pills) Padding(padding: const EdgeInsets.only(right: 5), child: p),
+            ]),
+          ),
+        ),
+        if (end != null) Padding(padding: const EdgeInsets.only(left: 4, right: 5), child: end),
+      ]);
+
+  /// "closes 12 Oct" (red within a week) or "applied 3 Oct".
+  Widget? _when(Application a) {
+    if (a.status == 'to-apply' && a.deadline != null) {
+      return Text('closes ${fmtWhen(a.deadline)}',
+          style: mono(size: 10, color: dueWithin(a, 7) ? C.red : C.ink3, w: FontWeight.w700));
+    }
+    if (a.dateApplied != null) {
+      return Text('applied ${fmtWhen(a.dateApplied)}', style: mono(size: 10, color: C.ink3));
+    }
+    return null;
+  }
+
+  Widget _title(String text) => Text(text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: C.ink, height: 1.2));
+
+  Widget _appCard(BuildContext context, Application a) {
+    final color = trackColor(a.track);
+    return _tile(
+      color: color,
+      height: _cardH,
+      onTap: () => showApplicationForm(context, existing: a),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _monogram(a.company, color),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _title(a.company),
+              const SizedBox(height: 2),
+              if (a.nextAction != null) ...[
+                Text(a.role, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: C.ink2)),
+                Text('→ ${a.nextAction}${a.nextActionDate == null ? '' : ' (${fmtWhen(a.nextActionDate)})'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: C.greenD, fontWeight: FontWeight.w600)),
+              ] else
+                Text(a.role, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: C.ink2, height: 1.25)),
+            ]),
+          ),
+          _tick(a),
+          _menu(a),
+        ]),
+        const Spacer(),
+        _pillRow([
+          _pill(a.track.toUpperCase(), color, filled: true),
+          _sponsorPill(a.sponsorship),
+          if (a.cvVersion == 'gaming') _pill('GAMING CV', C.mustard),
+          originMark(a.from),
+        ], end: _when(a)),
       ]),
     );
   }
 
-  Widget _appCard(BuildContext context, Application a) => _card(
-        onTap: () => showApplicationForm(context, existing: a),
-        edge: a.sponsorship == 'no-sponsorship' ? C.red : null,
+  Widget _companyCard(BuildContext context, String status, List<Application> roles) {
+    final key = _companyKey(status, roles);
+    final open = page._openCompanies.contains(key);
+    final color = _mainColor(roles);
+    void toggle() => page._update(() {
+          if (!page._openCompanies.remove(key)) page._openCompanies.add(key);
+        });
+    final tracks = {for (final r in roles) r.track}.toList();
+    final deadlines = [for (final r in roles) if (r.deadline != null) r.deadline!]..sort();
+
+    final header = Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _monogram(roles.first.company, color),
+      const SizedBox(width: 9),
+      Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(
-              child: Text(a.company,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: C.ink)),
-            ),
-            _tick(a),
-            PopupMenuButton<String>(
-              tooltip: 'Move to…',
-              padding: EdgeInsets.zero,
-              icon: const Icon(Icons.more_horiz, size: 18, color: C.ink3),
-              onSelected: (v) {
-                if (v == '__link') {
-                  csvio.openLink(a.link!);
-                } else {
-                  store.setAppStatus(a, v);
-                }
-              },
-              itemBuilder: (_) => [
-                if (a.link != null)
-                  const PopupMenuItem(value: '__link', child: Text('Open posting')),
-                for (final s in appStatuses)
-                  if (s != a.status)
-                    PopupMenuItem(value: s, child: Text('Move to ${appStatusLabel[s]}')),
-              ],
-            ),
-          ]),
-          if (a.role.isNotEmpty)
-            Text(a.role,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12.5, color: C.ink2)),
-          const SizedBox(height: 7),
-          Wrap(spacing: 5, runSpacing: 5, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            _pill(a.track.toUpperCase(), C.navy),
-            _sponsorPill(a.sponsorship),
-            if (a.cvVersion == 'gaming') _pill('GAMING CV', C.mustard),
-            originMark(a.from),
-          ]),
-          if (a.dateApplied != null || a.deadline != null) ...[
-            const SizedBox(height: 6),
-            Text(
-                [
-                  if (a.dateApplied != null) 'applied ${fmtWhen(a.dateApplied)}',
-                  if (a.deadline != null) 'closes ${fmtWhen(a.deadline)}',
-                ].join(' · '),
-                style: mono(size: 10, color: C.ink3)),
+          _title(roles.first.company),
+          const SizedBox(height: 2),
+          Text(
+            open
+                ? '${roles.length} roles · tap one to edit'
+                : roles.map((r) => r.role.isEmpty ? 'untitled role' : r.role).join(' · '),
+            maxLines: open ? 1 : 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: C.ink2, height: 1.25),
+          ),
+        ]),
+      ),
+      if (open) _pinButton(roles.first.company, color: C.ink3),
+      // Count and chevron in the same two slots as ✓ and ⋯ on a single card.
+      SizedBox(
+        width: 30,
+        height: 30,
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(5)),
+            child: Text('${roles.length}',
+                textAlign: TextAlign.center,
+                style: mono(size: 11, color: C.creamTxt, w: FontWeight.w700)),
+          ),
+        ),
+      ),
+      SizedBox(
+        width: 30,
+        height: 30,
+        child: Icon(open ? Icons.expand_less : Icons.expand_more, size: 22, color: C.ink2),
+      ),
+    ]);
+
+    if (!open) {
+      return _tile(
+        color: color,
+        height: _cardH,
+        onTap: toggle,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          header,
+          const Spacer(),
+          _pillRow([
+            for (final t in tracks) _pill(t.toUpperCase(), trackColor(t), filled: true),
+            _pill('${roles.length} ROLES', color),
           ],
-          if (a.nextAction != null) ...[
-            const SizedBox(height: 4),
-            Text('→ ${a.nextAction}${a.nextActionDate == null ? '' : ' (${fmtWhen(a.nextActionDate)})'}',
-                style: const TextStyle(fontSize: 12, color: C.greenD, fontWeight: FontWeight.w600)),
-          ],
+              end: deadlines.isEmpty
+                  ? null
+                  : Text('next closes ${fmtWhen(deadlines.first)}',
+                      style: mono(size: 10, color: C.ink3))),
         ]),
       );
+    }
+
+    // Open: the roles as a grid of small tiles, each with its own ✓ and ⋯.
+    return _tile(
+      color: color,
+      onTap: toggle,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        header,
+        const SizedBox(height: 8),
+        LayoutBuilder(builder: (context, c) {
+          final perRow = (c.maxWidth / 250).floor().clamp(1, 6);
+          return Column(children: [
+            for (var i = 0; i < roles.length; i += perRow)
+              Row(children: [
+                for (var k = 0; k < perRow; k++)
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(right: k < perRow - 1 ? 8 : 5, bottom: 8),
+                      child: i + k < roles.length
+                          ? _roleTile(context, roles[i + k])
+                          : const SizedBox.shrink(),
+                    ),
+                  ),
+              ]),
+          ]);
+        }),
+      ]),
+    );
+  }
+
+  /// The pin: marks a whole company important (it then leads its section).
+  Widget _pinButton(String company, {Color color = C.creamTxt}) {
+    final on = store.isPinned(company);
+    return IconButton(
+      tooltip: on ? 'Unmark important' : 'Mark important',
+      padding: EdgeInsets.zero,
+      constraints: _slot,
+      icon: Icon(on ? Icons.star : Icons.star_border, size: 20, color: on ? C.mustard : color),
+      onPressed: () => page._update(() => store.togglePin(company)),
+    );
+  }
+
+  /// A featured company: a signboard header in its colour, its most
+  /// relevant roles listed with their own ✓ and ⋯, and the usual pills.
+  /// Two small cards tall, so it sits beside two rows of them.
+  Widget _bigCard(BuildContext context, String status, List<Application> g) {
+    final color = g.length == 1 ? trackColor(g.first.track) : _mainColor(g);
+    final company = g.first.company;
+    final key = _companyKey(status, g);
+    final shown = g.length == 1 ? g : _byRelevance([for (final r in g) [r]]).map((x) => x.first).toList();
+    final deadlines = [for (final r in g) if (r.deadline != null) r.deadline!]..sort();
+    final sub = [
+      g.length == 1 ? (g.first.role.isEmpty ? 'Untitled role' : g.first.role) : '${g.length} roles',
+      if (deadlines.isNotEmpty) 'closes ${fmtWhen(deadlines.first)}',
+    ].join(' · ');
+    void openHeader() => g.length == 1
+        ? showApplicationForm(context, existing: g.first)
+        : page._update(() => page._openCompanies.add(key));
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        height: _cardH * 2 + 10,
+        decoration: BoxDecoration(
+          color: C.paper2,
+          border: Border.all(color: color, width: 2),
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: const [BoxShadow(color: Color(0x33462D0F), offset: Offset(3, 3))],
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // signboard header
+          Material(
+            color: color,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(5)),
+            child: InkWell(
+              onTap: openHeader,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(9, 8, 3, 8),
+                child: Row(children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: C.creamTxt,
+                      borderRadius: BorderRadius.circular(6),
+                      boxShadow: const [BoxShadow(color: Color(0x40000000), offset: Offset(1.5, 1.5))],
+                    ),
+                    child: Text(company.trim().isEmpty ? '?' : company.trim()[0].toUpperCase(),
+                        style: disp(size: 21, w: FontWeight.w700, color: color)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(company,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: disp(size: 17, w: FontWeight.w700, color: C.creamTxt)),
+                      Text(sub,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: mono(size: 10.5, color: C.creamTxt.withValues(alpha: .85))),
+                    ]),
+                  ),
+                  _pinButton(company),
+                  g.length == 1
+                      ? _menu(g.first, light: true)
+                      : const SizedBox(
+                          width: 30,
+                          height: 30,
+                          child: Icon(Icons.unfold_more, size: 20, color: C.creamTxt)),
+                ]),
+              ),
+            ),
+          ),
+          // roles
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 3, 0),
+              child: SingleChildScrollView(
+                physics: const NeverScrollableScrollPhysics(),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                for (final r in shown.take(3))
+                  InkWell(
+                    onTap: () => showApplicationForm(context, existing: r),
+                    borderRadius: BorderRadius.circular(5),
+                    child: SizedBox(
+                      height: 32,
+                      child: Row(children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          margin: const EdgeInsets.only(left: 2, right: 8),
+                          decoration: BoxDecoration(color: trackColor(r.track), shape: BoxShape.circle),
+                        ),
+                        Expanded(
+                          child: Text(
+                            r.role.isEmpty ? 'Untitled role' : r.role,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12.5, color: C.ink),
+                          ),
+                        ),
+                        if (r.deadline != null && g.length > 1)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 6),
+                            child: Text(fmtWhen(r.deadline),
+                                style: mono(size: 9.5, color: dueWithin(r, 7) ? C.red : C.ink3)),
+                          ),
+                        _tick(r),
+                        if (g.length > 1) _menu(r),
+                      ]),
+                    ),
+                  ),
+                if (g.length > 3)
+                  TextButton(
+                    style: TextButton.styleFrom(
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.only(left: 2),
+                        minimumSize: const Size(0, 26),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                    onPressed: openHeader,
+                    child: Text('+ ${g.length - 3} more roles',
+                        style: mono(size: 10.5, color: color, w: FontWeight.w700)),
+                  ),
+                // One role: room for its details instead of empty space.
+                if (g.length == 1) ...[
+                  if (g.first.nextAction != null)
+                    Text(
+                        '→ ${g.first.nextAction}'
+                        '${g.first.nextActionDate == null ? '' : ' (${fmtWhen(g.first.nextActionDate)})'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 12, color: C.greenD, fontWeight: FontWeight.w600)),
+                  if ([g.first.term, g.first.location].any((v) => v != null))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3, left: 2),
+                      child: Text(
+                          [g.first.term, g.first.location].whereType<String>().join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: mono(size: 10.5, color: C.ink2)),
+                    ),
+                  if (g.first.notes != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, left: 2),
+                      child: Text(g.first.notes!,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 12, color: C.ink2, fontStyle: FontStyle.italic, height: 1.3)),
+                    ),
+                ],
+              ])),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 0, 8),
+            child: _pillRow([
+              for (final t in {for (final r in g) r.track}) _pill(t.toUpperCase(), trackColor(t), filled: true),
+              _sponsorPill(g.first.sponsorship),
+              originMark(g.first.from),
+            ], end: g.length == 1 ? _when(g.first) : null),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _roleTile(BuildContext context, Application r) {
+    final color = trackColor(r.track);
+    final meta = [
+      if (r.term != null) r.term!,
+      if (r.location != null) r.location!,
+    ].join(' · ');
+    return Material(
+      color: C.paper,
+      borderRadius: BorderRadius.circular(6),
+      child: InkWell(
+        onTap: () => showApplicationForm(context, existing: r),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          height: 64,
+          padding: const EdgeInsets.fromLTRB(9, 6, 2, 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(6),
+            border: Border(left: BorderSide(color: color, width: 4)),
+          ),
+          child: Row(children: [
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(r.role.isEmpty ? 'Untitled role' : r.role,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12.5, color: C.ink, height: 1.2)),
+                    if (meta.isNotEmpty || r.deadline != null)
+                      Text(
+                          [
+                            if (meta.isNotEmpty) meta,
+                            if (r.deadline != null) 'closes ${fmtWhen(r.deadline)}',
+                          ].join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: mono(size: 9.5, color: C.ink3)),
+                  ]),
+            ),
+            _tick(r),
+            _menu(r),
+          ]),
+        ),
+      ),
+    );
+  }
 }
 
 // ---------------- Events ----------------

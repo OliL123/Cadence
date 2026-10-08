@@ -73,6 +73,57 @@ void main() {
     expect(find.text('Bungie'), findsOneWidget);
   });
 
+  testWidgets('cards in a row are the same height', (tester) async {
+    await open(tester);
+    // Valve (one role) and Bungie (one role, shorter text) sit side by side.
+    Size cardOf(String company) => tester.getSize(find
+        .ancestor(of: find.text(company), matching: find.byType(Ink))
+        .first);
+    expect(cardOf('Valve').height, cardOf('Bungie').height);
+  });
+
+  testWidgets('pressing and marked-important companies lead, in big cards', (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    store.applications = [];
+    store.trackEvents = [];
+    store.careerPins = [];
+    final soon = DateTime.now().add(const Duration(days: 2));
+    final iso = '${soon.year}-${soon.month.toString().padLeft(2, '0')}-${soon.day.toString().padLeft(2, '0')}';
+    store.importApplications([
+      for (var i = 0; i < 10; i++) Application(id: 0, company: 'Filler $i', role: 'Intern'),
+      Application(id: 0, company: 'Closing Soon Co', role: 'Intern', deadline: iso),
+      Application(id: 0, company: 'Dream Studio', role: 'Gameplay Intern'),
+    ]);
+    store.togglePin('dream studio');
+    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: CareerPage())));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Applications 12'));
+    await tester.pumpAndSettle();
+
+    final dream = tester.getTopLeft(find.text('Dream Studio'));
+    final closing = tester.getTopLeft(find.text('Closing Soon Co'));
+    final filler = tester.getTopLeft(find.text('Filler 0'));
+    expect(dream.dy, lessThan(closing.dy), reason: 'marked important comes first');
+    expect(closing.dy, lessThan(tester.getTopLeft(find.text('Filler 9')).dy));
+    expect(dream.dx, lessThan(filler.dx), reason: 'big cards on the left, small beside');
+    expect(find.byTooltip('Unmark important'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('marked-important companies sync, and an older copy without them keeps ours', () {
+    final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
+    s.togglePin('Riot Games');
+    expect(s.isPinned('  riot games '), isTrue);
+    final old = s.exportState()..remove('careerPins');
+    s.applyRemoteState(old);
+    expect(s.isPinned('Riot Games'), isTrue);
+    final other = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
+    other.applyRemoteState(s.exportState());
+    expect(other.isPinned('Riot Games'), isTrue);
+  });
+
   testWidgets('Board still shows the status columns', (tester) async {
     await open(tester);
     await tester.tap(find.text('Board'));

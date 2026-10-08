@@ -40,6 +40,9 @@ class CadenceStore extends ChangeNotifier {
   double weatherLat = 42.28;
   double weatherLon = -83.74;
   List<String> holidayCountries = ['US']; // ISO-3166 alpha-2 codes, colour-coded
+  /// Companies marked important in Career (lower-cased names): they lead
+  /// their section in big cards. A setting, so it syncs like one.
+  List<String> careerPins = [];
   List<String> gcalCalendars = []; // chosen Google sub-calendar ids (synced)
   int gcalCalsUpdatedAt = 0; // own LWW clock for the selection (independent)
 
@@ -123,6 +126,7 @@ class CadenceStore extends ChangeNotifier {
     weatherLat = 42.28;
     weatherLon = -83.74;
     holidayCountries = ['US'];
+    careerPins = [];
     gcalCalendars = [];
     gcalCalsUpdatedAt = 0;
     deleted = {};
@@ -187,6 +191,7 @@ class CadenceStore extends ChangeNotifier {
         'wxLat': weatherLat,
         'wxLon': weatherLon,
         'holCountries': holidayCountries,
+        'careerPins': careerPins,
         'gcalCals': gcalCalendars,
         'gcalCalsAt': gcalCalsUpdatedAt,
       };
@@ -263,6 +268,10 @@ class CadenceStore extends ChangeNotifier {
     } else if (j['holCountry'] != null) {
       holidayCountries = [j['holCountry'] as String]; // migrate old single value
     }
+    // Absent from older builds' copies: keep what we have rather than clear it.
+    if (j['careerPins'] is List) {
+      careerPins = (j['careerPins'] as List).map((e) => e as String).toSet().toList();
+    }
     // The calendar selection has its own clock so it isn't clobbered by an
     // unrelated edit on another device — only a *newer selection* wins.
     // Strictly newer: on an equal clock the remote is not newer, it's a tie.
@@ -325,6 +334,7 @@ class CadenceStore extends ChangeNotifier {
     final lStreak = streak;
     final lWx = (weatherPlace, weatherLat, weatherLon);
     final lHol = List<String>.from(holidayCountries);
+    final lPins = List<String>.from(careerPins);
 
     final remoteHasData = ['tasks', 'apps', 'events', 'goals']
         .any((k) => j[k] is List && (j[k] as List).isNotEmpty);
@@ -366,6 +376,7 @@ class CadenceStore extends ChangeNotifier {
       weatherLat = lWx.$2;
       weatherLon = lWx.$3;
       holidayCountries = lHol;
+      careerPins = lPins;
       updatedAt = lUpdated;
       push = true;
     }
@@ -1199,6 +1210,19 @@ class CadenceStore extends ChangeNotifier {
     }
     if (added + updated > 0) _changed();
     return (added: added, updated: updated, skipped: skipped, ids: ids);
+  }
+
+  // ---------- important companies ----------
+  static String companyKey(String company) => _norm(company);
+
+  bool isPinned(String company) => careerPins.contains(companyKey(company));
+
+  void togglePin(String company) {
+    final k = companyKey(company);
+    careerPins = careerPins.contains(k)
+        ? careerPins.where((c) => c != k).toList()
+        : [...careerPins, k];
+    _changed();
   }
 
   // ---------- duplicates ----------
