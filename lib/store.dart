@@ -427,6 +427,11 @@ class CadenceStore extends ChangeNotifier {
       } else if (l != null && uAt(l) > uAt(r)) {
         chosen = l;
         fromLocal = true;
+      } else if (l != null && uAt(l) == uAt(r) && uAt(l) != 0) {
+        // The same edit on both sides (usually our own push echoing back).
+        // Keep the object the UI is already holding: swapping in an equal
+        // copy left an open dialog or UNDO editing one nobody could see.
+        chosen = l;
       } else {
         chosen = r;
       }
@@ -667,6 +672,20 @@ class CadenceStore extends ChangeNotifier {
     return null;
   }
 
+  /// The task as it is in [tasks] right now. A sync (or a reload on resume)
+  /// swaps in fresh objects when another device's copy is newer, so a dialog
+  /// or UNDO that grabbed [t] before then would otherwise edit a stray copy
+  /// and the change would silently vanish. Every task mutation goes via this.
+  Task _live(Task t) => byId(t.id) ?? t;
+
+  /// [s] as it is in [live]'s current subtask list, matched by position in
+  /// the task object [s] was taken from.
+  SubTask? _liveSub(Task from, Task live, SubTask s) {
+    if (live.sub.contains(s)) return s;
+    final i = from.sub.indexOf(s);
+    return i >= 0 && i < live.sub.length ? live.sub[i] : null;
+  }
+
   /// Tasks currently on the wall, in wall order.
   List<Task> wallTasks() => wall
       .map((id) => byId(id))
@@ -687,6 +706,7 @@ class CadenceStore extends ChangeNotifier {
   }
 
   void setDueTime(Task t, String? hhmm) {
+    t = _live(t);
     t.dueTime = hhmm;
     _touch(t);
   }
@@ -741,6 +761,7 @@ class CadenceStore extends ChangeNotifier {
   }
 
   void deleteTask(Task t) {
+    t = _live(t);
     if (t.star) {
       wall.remove(t.id);
       _returnTile(t.tile);
@@ -755,6 +776,7 @@ class CadenceStore extends ChangeNotifier {
   /// starred. Its fresh edit clock outranks the deletion marker, so the undo
   /// also wins on devices that already received the delete.
   void insertTask(Task t, int index) {
+    if (byId(t.id) != null) return; // a sync already brought it back
     tasks.insert(index.clamp(0, tasks.length), t);
     deleted.remove('t:${t.id}');
     _reconcile();
@@ -771,6 +793,7 @@ class CadenceStore extends ChangeNotifier {
   }
 
   void toggleDone(Task t) {
+    t = _live(t);
     t.done = !t.done;
     if (t.done) {
       t.doneAt = DateTime.now().millisecondsSinceEpoch; // for the 1-week auto-clean
@@ -840,6 +863,7 @@ class CadenceStore extends ChangeNotifier {
 
   /// Tick (or un-tick) today's completion of a daily, keeping the streak.
   void toggleDailyDone(Task t) {
+    t = _live(t);
     final gap = _daysSince(t.doneDate);
     if (gap != null && gap <= 0) {
       // Already ticked today — undo it, restoring the pre-tick state.
@@ -854,6 +878,7 @@ class CadenceStore extends ChangeNotifier {
   }
 
   void setDaily(Task t, bool v) {
+    t = _live(t);
     t.daily = v;
     if (v) {
       // a daily lives only in the Daily section — drop task-list/ wall state
@@ -881,6 +906,7 @@ class CadenceStore extends ChangeNotifier {
 
   /// Returns true if a tile was newly drawn onto the wall (for 自摸 detection).
   bool toggleStar(Task t) {
+    t = _live(t);
     if (t.done) return false; // a finished task can't be on the wall
     if (t.star) {
       wall.remove(t.id);
@@ -901,6 +927,7 @@ class CadenceStore extends ChangeNotifier {
   }
 
   bool togglePri(Task t) {
+    t = _live(t);
     t.pri = !t.pri;
     if (t.done) {
       _touch(t); // priority flag only; no wall changes for finished tasks
@@ -936,6 +963,7 @@ class CadenceStore extends ChangeNotifier {
   }
 
   void setTitle(Task t, String v) {
+    t = _live(t);
     if (v.trim().isNotEmpty) t.title = v.trim();
     _touch(t);
   }
@@ -948,45 +976,54 @@ class CadenceStore extends ChangeNotifier {
   }
 
   void setDue(Task t, DateTime? d) {
+    t = _live(t);
     _applyDue(t, d);
     _touch(t);
   }
 
   void moveTask(Task t, String group) {
+    t = _live(t);
     t.group = group;
     _touch(t);
   }
 
   // ---------- subtasks ----------
   void toggleOpen(Task t) {
+    t = _live(t);
     t.open = !t.open;
-    _touch(t);
+    // Saved, but not stamped as an edit: sync takes whole tasks, so expanding
+    // a task here used to outrank (and undo) a rename made on another device.
+    _changed();
   }
 
   void addSub(Task t, String title) {
+    t = _live(t);
     if (title.trim().isEmpty) return;
     t.sub.add(SubTask(title.trim()));
     t.open = true;
     _touch(t);
   }
 
-  void toggleSub(SubTask s) {
-    s.done = !s.done;
-    // find the owning task so its per-task clock advances too
-    for (final t in tasks) {
-      if (t.sub.contains(s)) { _touch(t); return; }
-    }
-    _changed();
+  void toggleSub(Task t, SubTask s) {
+    final live = _live(t);
+    final sub = _liveSub(t, live, s);
+    if (sub == null) return;
+    sub.done = !sub.done;
+    _touch(live);
   }
 
   void deleteSub(Task t, SubTask s) {
-    t.sub.remove(s);
-    _touch(t);
+    final live = _live(t);
+    final sub = _liveSub(t, live, s);
+    if (sub == null) return;
+    live.sub.remove(sub);
+    _touch(live);
   }
 
   /// Move a subtask within its task. [to] is the final position — the
   /// already-adjusted index that ReorderableListView.onReorderItem supplies.
   void reorderSub(Task t, int from, int to) {
+    t = _live(t);
     if (from < 0 || from >= t.sub.length || from == to) return;
     final s = t.sub.removeAt(from);
     t.sub.insert(to.clamp(0, t.sub.length), s);
@@ -994,10 +1031,12 @@ class CadenceStore extends ChangeNotifier {
   }
 
   void renameSub(Task t, SubTask s, String title) {
+    final live = _live(t);
+    final sub = _liveSub(t, live, s);
     final v = title.trim();
-    if (v.isEmpty || v == s.title) return;
-    s.title = v;
-    _touch(t);
+    if (sub == null || v.isEmpty || v == sub.title) return;
+    sub.title = v;
+    _touch(live);
   }
 
   // ---------- career tracker ----------
@@ -1289,7 +1328,11 @@ class CadenceStore extends ChangeNotifier {
     if (iso == null) return null;
     final p = iso.split('-');
     if (p.length != 3) return null;
-    return DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
+    // tryParse: a malformed date from an import or an old sync must not
+    // throw in the middle of building the screen.
+    final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
+    if (y == null || m == null || d == null) return null;
+    return DateTime(y, m, d);
   }
 
   /// The exact moment a task is due: its date plus its time of day, or the end

@@ -1448,8 +1448,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         content: Text(
           'Your tasks and Career data will be removed from this browser. '
           'They stay in your account — sign in again to bring them back.'
-          '${unsynced ? '\n\nSome recent changes haven\'t synced yet. Cadence will try to '
-              'upload them first; if you\'re offline they\'ll be lost.' : ''}',
+          '${unsynced ? '\n\nSome recent changes haven\'t synced yet. Cadence will upload '
+              'them first, and won\'t sign out if it can\'t.' : ''}',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
@@ -1859,8 +1859,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             child: Row(children: [
               Flexible(child: _chronChip(L.madeFor)),
               const Spacer(),
-              if (apk.canDownloadApk) _apkButton(),
-              const SizedBox(width: 8),
+              // No APK button: Chronicle is iPhone-only and ships no APK.
               _syncButton(),
             ]),
           ),

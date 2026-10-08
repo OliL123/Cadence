@@ -462,6 +462,16 @@ class CareerAgenda {
       if (a.status == 'to-apply' && within(dl, soon)) {
         urgent.add(AgendaItem(dl!, '${a.company} — ${a.role}', 'application closes', app: a));
       }
+      // A deadline that slipped by while still "to apply" stays urgent for a
+      // week (instead of vanishing the moment it passes), until it's applied
+      // to or closed. Older ones are assumed dealt with, so an imported list
+      // full of past deadlines doesn't flood the banner.
+      if (a.status == 'to-apply' &&
+          dl != null &&
+          dl.isBefore(n) &&
+          dl.isAfter(n.subtract(const Duration(days: 7)))) {
+        urgent.add(AgendaItem(dl, '${a.company} — ${a.role}', 'application', app: a));
+      }
       if (within(dl, week) && a.status == 'to-apply') {
         thisWeek.add(AgendaItem(dl!, '${a.company} — ${a.role}', 'application closes', app: a));
       }
