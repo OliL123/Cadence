@@ -43,7 +43,27 @@ class CadenceStore extends ChangeNotifier {
   List<String> gcalCalendars = []; // chosen Google sub-calendar ids (synced)
   int gcalCalsUpdatedAt = 0; // own LWW clock for the selection (independent)
 
-  int _newId() => ++_uid;
+  /// A new item id. Random rather than counting up per device: two devices
+  /// adding items while apart used to hand out the same numbers, and the
+  /// per-id merge then replaced one item with the other. Kept within 32 bits
+  /// (Android notification and widget ids are ints) and above the old
+  /// counter's range, and checked against ids already in use.
+  int _newId() {
+    const lo = 1 << 20, hi = 0x7FFFFFFF;
+    final taken = {
+      for (final t in tasks) t.id,
+      for (final a in applications) a.id,
+      for (final e in trackEvents) e.id,
+      for (final g in goals) g.id,
+    };
+    int id;
+    do {
+      id = lo + _idRng.nextInt(hi - lo);
+    } while (taken.contains(id));
+    return id;
+  }
+
+  static final _idRng = Random.secure();
 
   static List<Tile> _buildDeck() {
     final d = <Tile>[];
@@ -64,6 +84,10 @@ class CadenceStore extends ChangeNotifier {
   // ---------- persistence ----------
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
+    // Re-read storage, not this isolate's cached copy: the home-screen widget
+    // writes from its own background engine, and a stale cache here reverted
+    // a widget tick on resume (and could save the stale copy over it).
+    await p.reload();
     final raw = p.getString(_key);
     if (raw == null) {
       _seed();
@@ -101,8 +125,11 @@ class CadenceStore extends ChangeNotifier {
     holidayCountries = ['US'];
     gcalCalendars = [];
     gcalCalsUpdatedAt = 0;
+    deleted = {};
     pendingMergePush = false;
-    _seed(); // sample tasks, clock 0 — any real data always wins over them
+    // Sample tasks with edit clock 0: shown as on a new install, but never
+    // merged into an account that has data (see [applyRemoteState]).
+    _seed();
     await save();
     notifyListeners();
   }
@@ -114,20 +141,29 @@ class CadenceStore extends ChangeNotifier {
   /// this feature existed have no timestamp — stamp them "now" so they get a
   /// full grace period instead of vanishing immediately.
   void purgeOldDone() {
+    // Persist quietly. This purge is derived deterministically from the data
+    // plus the clock, so every device performs the same removal on its own —
+    // it must NOT bump `updatedAt` (that would make this device's settings
+    // look newest) or need deletion markers.
+    final markers = deleted.length;
+    final purged = _purgeOldDone();
+    _pruneDeleted();
+    if (purged || deleted.length != markers) save();
+  }
+
+  /// The purge itself; true if anything changed. Also run after a sync merge,
+  /// since another device may not have purged its copy yet.
+  bool _purgeOldDone() {
     final now = DateTime.now().millisecondsSinceEpoch;
-    var migrated = false;
+    var changed = false;
     for (final t in tasks.where((t) => t.done && t.doneAt == null)) {
       t.doneAt = now;
-      migrated = true;
+      changed = true;
     }
     final cutoff = now - doneKeep.inMilliseconds;
     final before = tasks.length;
     tasks.removeWhere((t) => t.done && t.doneAt != null && t.doneAt! < cutoff);
-    // Persist quietly either way. This purge is derived deterministically from
-    // the data plus the clock, so every device performs the same removal on its
-    // own — it must NOT bump `updatedAt`, or a stale device that merely opened
-    // the app would look like the newest writer and push its old state up.
-    if (tasks.length != before || migrated) save();
+    return changed || tasks.length != before;
   }
 
   /// The shared app state — what travels between devices. Deliberately excludes
@@ -145,6 +181,7 @@ class CadenceStore extends ChangeNotifier {
         'apps': applications.map((a) => a.toJson()).toList(),
         'events': trackEvents.map((e) => e.toJson()).toList(),
         'goals': goals.map((g) => g.toJson()).toList(),
+        'deleted': deleted,
         'updatedAt': updatedAt,
         'wxPlace': weatherPlace,
         'wxLat': weatherLat,
@@ -202,6 +239,11 @@ class CadenceStore extends ChangeNotifier {
           .map((e) => Goal.fromJson(e as Map<String, dynamic>))
           .toList();
     }
+    // Missing (an older build's copy) reads as "no markers": a merge then sees
+    // this device's markers as news and publishes them.
+    deleted = j['deleted'] is Map
+        ? (j['deleted'] as Map).map((k, v) => MapEntry(k as String, (v as num).toInt()))
+        : <String, int>{};
     viewMode = j['viewMode'] ?? viewMode;
     sortMode = j['sortMode'] ?? sortMode;
     filter = j['filter'] ?? filter;
@@ -240,125 +282,176 @@ class CadenceStore extends ChangeNotifier {
     _reconcile();
   }
 
-  /// Set by [applyRemoteState] when its per-task merge kept a locally-newer task
-  /// over the incoming cloud copy — the sync layer then pushes the corrected
-  /// merge back so every device converges.
+  /// Set by [applyRemoteState] when the merge kept something the incoming
+  /// copy lacks — the sync layer then pushes the merged state back so every
+  /// device converges.
   bool pendingMergePush = false;
 
-  /// Apply cloud state, persist it locally (so disk mirrors the cloud and a
-  /// later resume can't push stale data back), and notify the UI.
+  /// Merge a copy from the cloud into this device, persist, and notify.
   ///
-  /// Whole-state LWW decides the *structure* (which tasks exist), but within
-  /// that we merge tasks per-id by their own [Task.uAt] clock: if this device
-  /// edited a task more recently than the incoming copy, we keep ours. That
-  /// stops a stale device's blob from silently reverting a per-task edit — e.g.
-  /// a task just made a daily jumping back into its old group.
+  /// Both sides are combined; neither replaces the other wholesale:
+  ///  * Items (tasks, groups, applications, events, goals) merge one by one:
+  ///    whichever copy was edited last ([Task.uAt] etc.) wins, and an item
+  ///    only one side has is kept — unless a deletion marker ([deleted]) at
+  ///    least as new as its last edit says it was deleted. That marker is what
+  ///    tells "deleted on another device" apart from "made here, never
+  ///    uploaded" — which a whole-state clock can't, and which used to drop
+  ///    work done offline.
+  ///  * Untouched sample tasks/groups (edit clock 0) from a fresh install or a
+  ///    signed-out device are never carried into an account that has data.
+  ///  * Settings (weather place, holidays, wall order, streak) follow whichever
+  ///    side changed anything most recently ([updatedAt]).
+  ///  * The mahjong score adds this device's points earned since its last sync.
+  ///
+  /// With [merge] false the cloud copy replaces this device's outright (the
+  /// explicit "Use cloud" override).
   void applyRemoteState(Map<String, dynamic> j, {bool merge = true}) {
-    final localTasks = List<Task>.from(tasks);
-    final localById = {for (final t in tasks) t.id: t};
-    final localApps = List<Application>.from(applications);
-    final localEvents = List<TrackEvent>.from(trackEvents);
-    final localGoals = List<Goal>.from(goals);
-    final localUid = _uid;
-    final localScore = score;
-    final localSynced = _syncedScore;
-    final localMelds = List<String>.from(scoredMelds);
-    final remoteTs = (j['updatedAt'] ?? 0) as int;
-    applyState(j); // replaces tasks with the (newer) incoming blob
-    final remoteScore = score;
-    var swapped = false;
-    if (merge) {
-      // Points earned here since the last sync are added on top of the
-      // incoming total, so melds scored on two devices between syncs both
-      // count. Without a sync baseline (first run of this build), fall back
-      // to the higher total — the score only ever goes up.
-      final gain = localSynced == null
-          ? localScore - remoteScore
-          : localScore - localSynced;
-      if (gain > 0) {
-        score = remoteScore + gain;
-        swapped = true;
-      }
-      // Keep the scored-meld record too, or a meld still on the wall would
-      // score again; and publish it if the cloud's record was missing some.
-      for (final k in localMelds) {
-        if (!scoredMelds.contains(k)) {
-          scoredMelds.add(k);
-          swapped = true;
-        }
-      }
-      for (var i = 0; i < tasks.length; i++) {
-        final loc = localById[tasks[i].id];
-        if (loc != null && loc.uAt > tasks[i].uAt) {
-          tasks[i] = loc; // our edit is newer — keep it
-          swapped = true;
-        }
-      }
-      // Tasks we have that the incoming blob doesn't. Two very different cases,
-      // told apart by the cloud snapshot's own clock:
-      //   edited after the snapshot  -> local work the cloud never saw, keep it
-      //   edited before the snapshot -> the cloud knew it and dropped it, so it
-      //                                 was deleted elsewhere; let it go.
-      final incoming = {for (final t in tasks) t.id};
-      for (final loc in localTasks) {
-        if (!incoming.contains(loc.id) && loc.uAt > remoteTs) {
-          tasks.add(loc);
-          swapped = true;
-        }
-      }
-      // Applications and events follow exactly the same rules as tasks.
-      if (_mergeById(applications, localApps, remoteTs, (a) => a.id, (a) => a.uAt)) {
-        swapped = true;
-      }
-      if (_mergeById(trackEvents, localEvents, remoteTs, (e) => e.id, (e) => e.uAt)) {
-        swapped = true;
-      }
-      if (_mergeById(goals, localGoals, remoteTs, (g) => g.id, (g) => g.uAt)) {
-        swapped = true;
-      }
-      // Never rewind the id counter below ids we just kept, or a new task could
-      // reuse an existing id.
-      if (localUid > _uid) _uid = localUid;
+    if (!merge) {
+      applyState(j);
+      _syncedScore = score;
+      pendingMergePush = false;
+      save();
+      notifyListeners();
+      return;
     }
-    // Groups arrive wholesale from the cloud, so a task we just kept may point
-    // at a group that only ever existed on this device. Re-home it rather than
-    // leave it orphaned: every section matches on an exact group key, so an
-    // orphan renders nowhere and looks like lost data.
+    // Snapshot this device before the incoming copy is parsed over it.
+    final lTasks = tasks, lGroups = groups, lApps = applications;
+    final lEvents = trackEvents, lGoals = goals;
+    final lDeleted = Map<String, int>.from(deleted);
+    final lScore = score, lSynced = _syncedScore;
+    final lMelds = List<String>.from(scoredMelds);
+    final lUid = _uid, lUpdated = updatedAt;
+    final lWall = List<int>.from(wall), lDeck = List<Tile>.from(deck);
+    final lStreak = streak;
+    final lWx = (weatherPlace, weatherLat, weatherLon);
+    final lHol = List<String>.from(holidayCountries);
+
+    final remoteHasData = ['tasks', 'apps', 'events', 'goals']
+        .any((k) => j[k] is List && (j[k] as List).isNotEmpty);
+    applyState(j); // the incoming copy, parsed
+    final remoteScore = score;
+    final localNewer = lUpdated > updatedAt;
+    var push = false;
+
+    // Deletion markers: union, newest per key.
+    lDeleted.forEach((k, at) {
+      if ((deleted[k] ?? -1) < at) {
+        deleted[k] = at;
+        push = true;
+      }
+    });
+    _pruneDeleted();
+
+    (List<X>, bool) mergeKind<X, K>(String kind, List<X> remote, List<X> local,
+        K Function(X) id, int Function(X) uAt) {
+      final r = _mergeItems(kind, remote, local, id, uAt,
+          localOrder: localNewer, dropUntouchedLocal: remoteHasData);
+      if (r.$2) push = true;
+      return r;
+    }
+
+    groups = mergeKind('g', groups, lGroups, (g) => g.key, (g) => g.uAt).$1;
+    tasks = mergeKind('t', tasks, lTasks, (t) => t.id, (t) => t.uAt).$1;
+    applications = mergeKind('a', applications, lApps, (a) => a.id, (a) => a.uAt).$1;
+    trackEvents = mergeKind('e', trackEvents, lEvents, (e) => e.id, (e) => e.uAt).$1;
+    goals = mergeKind('gl', goals, lGoals, (g) => g.id, (g) => g.uAt).$1;
+    if (groups.isEmpty) groups = defaultGroups();
+
+    // Settings: the side that changed something last.
+    if (localNewer) {
+      wall = lWall;
+      deck = lDeck;
+      streak = lStreak;
+      weatherPlace = lWx.$1;
+      weatherLat = lWx.$2;
+      weatherLon = lWx.$3;
+      holidayCountries = lHol;
+      updatedAt = lUpdated;
+      push = true;
+    }
+    if (lUid > _uid) _uid = lUid;
+
+    // Points earned here since the last sync are added on top of the
+    // incoming total, so melds scored on two devices between syncs both
+    // count. Without a sync baseline, fall back to the higher total — the
+    // score only ever goes up.
+    final gain = lSynced == null ? lScore - remoteScore : lScore - lSynced;
+    if (gain > 0) {
+      score = remoteScore + gain;
+      push = true;
+    }
+    // Keep the scored-meld record too, or a meld still on the wall would
+    // score again; and publish it if the cloud's record was missing some.
+    for (final k in lMelds) {
+      if (!scoredMelds.contains(k)) {
+        scoredMelds.add(k);
+        push = true;
+      }
+    }
+
+    // A task kept from this device may point at a group that was deleted.
     _rehomeOrphans();
+    _purgeOldDone(); // a copy from a device that hasn't purged yet
+    _reconcile(); // wall/tiles for the merged task objects
     // This is now what the cloud holds; any merged-in gain becomes synced once
     // the sync layer pushes it and calls [markScoreSynced].
     _syncedScore = remoteScore;
-    if (swapped) {
-      _reconcile(); // re-attach wall/tiles for the swapped task objects
-      updatedAt = DateTime.now().millisecondsSinceEpoch; // our merge is newest
-      pendingMergePush = true; // ask sync to push the corrected state up
-    }
+    pendingMergePush = push;
     save();
     notifyListeners();
   }
 
-  /// The per-item merge used for tasks, for any list of items with an id and
-  /// an edit clock. [incoming] (already applied from the cloud) is updated in
-  /// place; returns whether anything local was kept.
-  static bool _mergeById<T>(List<T> incoming, List<T> local, int remoteTs,
-      int Function(T) id, int Function(T) uAt) {
-    var kept = false;
-    final localById = {for (final x in local) id(x): x};
-    for (var i = 0; i < incoming.length; i++) {
-      final l = localById[id(incoming[i])];
-      if (l != null && uAt(l) > uAt(incoming[i])) {
-        incoming[i] = l;
-        kept = true;
+  /// Merge one kind of item (see [applyRemoteState]). Returns the merged list
+  /// and whether this device contributed anything the incoming copy lacks.
+  (List<X>, bool) _mergeItems<X, K>(String kind, List<X> remote, List<X> local,
+      K Function(X) id, int Function(X) uAt,
+      {required bool localOrder, required bool dropUntouchedLocal}) {
+    final rById = {for (final x in remote) id(x): x};
+    final lById = {for (final x in local) id(x): x};
+    // Keep the order of whichever side is newer; the other side's extra
+    // items follow.
+    final order = <K>{
+      ...(localOrder ? local : remote).map(id),
+      ...(localOrder ? remote : local).map(id),
+    };
+    var contributed = false;
+    final out = <X>[];
+    for (final k in order) {
+      final r = rById[k], l = lById[k];
+      final X chosen;
+      var fromLocal = false;
+      if (r == null) {
+        if (dropUntouchedLocal && uAt(l as X) == 0) continue; // sample data
+        chosen = l as X;
+        fromLocal = true;
+      } else if (l != null && uAt(l) > uAt(r)) {
+        chosen = l;
+        fromLocal = true;
+      } else {
+        chosen = r;
       }
-    }
-    final ids = {for (final x in incoming) id(x)};
-    for (final l in local) {
-      if (!ids.contains(id(l)) && uAt(l) > remoteTs) {
-        incoming.add(l);
-        kept = true;
+      final gone = deleted['$kind:$k'];
+      if (gone != null && gone >= uAt(chosen)) {
+        if (r != null) contributed = true; // the cloud still has it
+        continue;
       }
+      if (fromLocal) contributed = true;
+      out.add(chosen);
     }
-    return kept;
+    return (out, contributed);
+  }
+
+  /// Deletion markers, as "kind:id" → when (ms). Kept long enough for every
+  /// device to have synced, then pruned.
+  Map<String, int> deleted = {};
+  static const deletedKeep = Duration(days: 90);
+
+  void _markDeleted(String kind, Object id) =>
+      deleted['$kind:$id'] = DateTime.now().millisecondsSinceEpoch;
+
+  void _pruneDeleted() {
+    final cutoff = DateTime.now().millisecondsSinceEpoch - deletedKeep.inMilliseconds;
+    deleted.removeWhere((_, at) => at < cutoff);
   }
 
   Future<void> save() async {
@@ -654,18 +747,25 @@ class CadenceStore extends ChangeNotifier {
       t.tile = null;
     }
     tasks.remove(t);
+    _markDeleted('t', t.id);
     _changed();
   }
 
-  /// Re-insert a task (undo a delete). _reconcile re-attaches its wall tile if
-  /// it was starred.
+  /// Re-insert a task (undo a delete), re-attaching its wall tile if it was
+  /// starred. Its fresh edit clock outranks the deletion marker, so the undo
+  /// also wins on devices that already received the delete.
   void insertTask(Task t, int index) {
     tasks.insert(index.clamp(0, tasks.length), t);
+    deleted.remove('t:${t.id}');
+    _reconcile();
     _touch(t);
   }
 
   /// Delete every finished task now (the Done header's "clear" action).
   void clearDone() {
+    for (final t in tasks.where((t) => t.done && !t.daily)) {
+      _markDeleted('t', t.id);
+    }
     tasks.removeWhere((t) => t.done && !t.daily);
     _changed();
   }
@@ -904,17 +1004,34 @@ class CadenceStore extends ChangeNotifier {
   int get _now => DateTime.now().millisecondsSinceEpoch;
 
   /// Add [a] (id 0 = new) or record edits made to it in place.
-  void saveApplication(Application a) {
-    if (!applications.contains(a)) {
-      if (a.id == 0 || applications.any((x) => x.id == a.id)) a.id = _newId();
-      applications.add(a);
+  /// Put [item] in [list]: new (id 0) → fresh id; an id already there → that
+  /// entry is replaced. A form keeps the object it opened with, and a sync
+  /// arriving meanwhile swaps the list's objects for new ones — matching by
+  /// id (not identity) stops a save then adding a duplicate.
+  void _upsert<X>(List<X> list, X item, int Function(X) id, void Function(int) setId) {
+    if (list.contains(item)) return;
+    if (id(item) == 0) {
+      setId(_newId());
+      list.add(item);
+      return;
     }
+    final i = list.indexWhere((x) => id(x) == id(item));
+    if (i >= 0) {
+      list[i] = item;
+    } else {
+      list.add(item);
+    }
+  }
+
+  void saveApplication(Application a) {
+    _upsert(applications, a, (x) => x.id, (v) => a.id = v);
     a.uAt = _now;
     _changed();
   }
 
   void deleteApplication(Application a) {
-    applications.remove(a);
+    applications.removeWhere((x) => x.id == a.id);
+    _markDeleted('a', a.id);
     _changed();
   }
 
@@ -927,16 +1044,14 @@ class CadenceStore extends ChangeNotifier {
   }
 
   void saveEvent(TrackEvent e) {
-    if (!trackEvents.contains(e)) {
-      if (e.id == 0 || trackEvents.any((x) => x.id == e.id)) e.id = _newId();
-      trackEvents.add(e);
-    }
+    _upsert(trackEvents, e, (x) => x.id, (v) => e.id = v);
     e.uAt = _now;
     _changed();
   }
 
   void deleteEvent(TrackEvent e) {
-    trackEvents.remove(e);
+    trackEvents.removeWhere((x) => x.id == e.id);
+    _markDeleted('e', e.id);
     _changed();
   }
 
@@ -948,16 +1063,14 @@ class CadenceStore extends ChangeNotifier {
 
   /// Add [g] (id 0 = new) or record edits made to it in place.
   void saveGoal(Goal g) {
-    if (!goals.contains(g)) {
-      if (g.id == 0 || goals.any((x) => x.id == g.id)) g.id = _newId();
-      goals.add(g);
-    }
+    _upsert(goals, g, (x) => x.id, (v) => g.id = v);
     g.uAt = _now;
     _changed();
   }
 
   void deleteGoal(Goal g) {
-    goals.remove(g);
+    goals.removeWhere((x) => x.id == g.id);
+    _markDeleted('gl', g.id);
     _changed();
   }
 
@@ -965,18 +1078,6 @@ class CadenceStore extends ChangeNotifier {
   void bumpGoal(Goal g, int by) {
     g.count = max(0, g.count + by);
     g.uAt = _now;
-    _changed();
-  }
-
-  /// The starting list from trackers-plan.md, added once by the user.
-  void loadCareerStarter() {
-    final t = _now;
-    for (final a in starterApplications(_newId)) {
-      applications.add(a..uAt = t);
-    }
-    for (final e in starterEvents(_newId)) {
-      trackEvents.add(e..uAt = t);
-    }
     _changed();
   }
 
@@ -1037,7 +1138,8 @@ class CadenceStore extends ChangeNotifier {
         key: key,
         name: name.trim(),
         zh: zhForName(name),
-        color: _newPalette[groups.length % _newPalette.length]));
+        color: _newPalette[groups.length % _newPalette.length],
+        uAt: _now));
     _changed();
   }
 
@@ -1046,11 +1148,13 @@ class CadenceStore extends ChangeNotifier {
       g.name = name.trim();
       g.zh = zhForName(name);
     }
+    g.uAt = _now;
     _changed();
   }
 
   void setGroupColor(Group g, int color) {
     g.color = color;
+    g.uAt = _now;
     _changed();
   }
 
@@ -1121,11 +1225,16 @@ class CadenceStore extends ChangeNotifier {
   void deleteGroup(Group g) {
     if (groups.length <= 1) return;
     final dest = groups.firstWhere((x) => x.key != g.key).key;
+    final now = _now;
     for (final t in tasks) {
-      if (t.group == g.key) t.group = dest;
+      if (t.group == g.key) {
+        t.group = dest;
+        t.uAt = now; // the move must win over other devices' older copies
+      }
     }
     if (filter == g.key) filter = 'all';
-    groups.remove(g);
+    groups.removeWhere((x) => x.key == g.key);
+    _markDeleted('g', g.key);
     _changed();
   }
 

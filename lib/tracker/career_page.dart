@@ -160,7 +160,6 @@ class _CareerPageState extends State<CareerPage> {
   }
 
   Widget _header() {
-    final empty = store.applications.isEmpty && store.trackEvents.isEmpty;
     Widget tab(String id, String label) {
       final on = _tab == id;
       return InkWell(
@@ -208,8 +207,6 @@ class _CareerPageState extends State<CareerPage> {
               _export(false);
             case 'imp':
               _import();
-            case 'seed':
-              store.loadCareerStarter();
           }
         },
         itemBuilder: (_) => [
@@ -224,8 +221,6 @@ class _CareerPageState extends State<CareerPage> {
           PopupMenuItem(
               value: 'imp',
               child: Text(csvio.csvIoUsesFiles ? 'Import CSV…' : 'Import CSV from clipboard')),
-          if (empty)
-            const PopupMenuItem(value: 'seed', child: Text('Load my starting list')),
         ],
       ),
     ]);
@@ -767,16 +762,18 @@ class _OverviewTab extends StatelessWidget {
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: C.ink2)),
             const SizedBox(height: 16),
             Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.center, children: [
+              // A starting list lives in your own CSVs (kept out of this
+              // public repo), so importing is the way in.
               FilledButton.icon(
-                onPressed: store.loadCareerStarter,
-                icon: const Icon(Icons.playlist_add, size: 18),
-                label: const Text('Load my starting list'),
-                style: FilledButton.styleFrom(backgroundColor: C.green),
-              ),
-              OutlinedButton.icon(
                 onPressed: page._import,
                 icon: const Icon(Icons.upload_file, size: 18),
                 label: const Text('Import CSV'),
+                style: FilledButton.styleFrom(backgroundColor: C.green),
+              ),
+              OutlinedButton.icon(
+                onPressed: page._add,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add your first item'),
               ),
             ]),
           ]),

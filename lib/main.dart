@@ -1353,22 +1353,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Text(s.message!, style: const TextStyle(fontSize: 12, color: C.greenD)),
                   ),
-                const Text('If a device is out of sync, force it:',
+                const Text('If this device looks out of date:',
                     style: TextStyle(fontSize: 12, color: C.ink2)),
                 const SizedBox(height: 8),
                 Row(children: [
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: () => s.forcePush(),
-                      icon: const Icon(Icons.cloud_upload_outlined, size: 16),
-                      label: const Text('Use this device', style: TextStyle(fontSize: 12)),
+                      onPressed: () => s.syncNow(),
+                      icon: const Icon(Icons.sync, size: 16),
+                      label: const Text('Sync now', style: TextStyle(fontSize: 12)),
                       style: FilledButton.styleFrom(backgroundColor: C.green),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => s.forcePull(),
+                      onPressed: () => _confirmUseCloud(ctx, s),
                       icon: const Icon(Icons.cloud_download_outlined, size: 16),
                       label: const Text('Use cloud', style: TextStyle(fontSize: 12)),
                       style: OutlinedButton.styleFrom(
@@ -1462,6 +1462,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     );
     if (ok == true) await s.signOut();
+  }
+
+  /// "Use cloud" throws away anything on this device the cloud doesn't have,
+  /// so it asks first.
+  Future<void> _confirmUseCloud(BuildContext ctx, SyncService s) async {
+    final ok = await showDialog<bool>(
+      context: ctx,
+      builder: (d) => AlertDialog(
+        backgroundColor: C.paper2,
+        title: const Text('Replace this device with the cloud copy?'),
+        content: const Text(
+          'Anything on this device that hasn\'t synced will be discarded. '
+          'Usually "Sync now" is what you want — it keeps both.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(d, true),
+            style: FilledButton.styleFrom(backgroundColor: C.navy),
+            child: const Text('Use cloud'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await s.forcePull();
   }
 
   InputDecoration _syncField(String hint) => InputDecoration(

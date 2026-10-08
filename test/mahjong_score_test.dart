@@ -1,6 +1,5 @@
 // Meld scoring happens once per meld (so moving other tiles, or reopening the
 // wall, doesn't replay a 碰), and draws are steered toward tiles that can meld.
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cadence/models.dart';

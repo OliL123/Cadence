@@ -1,7 +1,6 @@
 // Due dates carry a time of day, but the countdown helpers used to compare
 // whole days only — so a task due at 18:00 stayed "today" all evening and
 // wasn't flagged overdue until the next calendar day.
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cadence/models.dart';

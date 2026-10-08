@@ -3,7 +3,6 @@
 //    opened the app would otherwise look like the newest writer),
 //  - a pull must not drop local tasks the cloud has never seen,
 //  - but a task genuinely deleted on another device must stay deleted.
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cadence/store.dart';
@@ -74,16 +73,119 @@ void main() {
     });
     expect(s.byId(2), isNotNull);
 
-    // Another device deleted task 2 and pushed at t=500. Our copy of task 2 was
-    // last touched at t=100, i.e. before that snapshot — so the cloud knew
-    // about it and dropped it deliberately.
+    // Another device deleted task 2 just now — it left a deletion marker newer
+    // than our last edit of task 2 (t=100). (A real timestamp: markers older
+    // than [CadenceStore.deletedKeep] are pruned.)
+    final now = DateTime.now().millisecondsSinceEpoch;
     s.applyRemoteState({
       'tasks': [taskMap(1, u: 100)],
-      'updatedAt': 500,
+      'deleted': {'t:2': now},
+      'updatedAt': now,
     });
 
     expect(s.byId(2), isNull,
         reason: 'a remote deletion must not be resurrected by the merge');
+  });
+
+  // ---- the data-loss cases the goal review found ----
+
+  test('a task made offline survives a cloud copy saved later', () {
+    final s = CadenceStore();
+    s.applyState({'tasks': [taskMap(1, u: 100)], 'updatedAt': 100});
+    s.addTask('Made offline', 'uni'); // edit clock: now
+    final offline = s.tasks.firstWhere((t) => t.title == 'Made offline');
+    // Another device saved *after* this task was made, without knowing it.
+    s.applyRemoteState({
+      'tasks': [taskMap(1, u: 100), taskMap(7, u: 100)],
+      'updatedAt': offline.uAt + 60000,
+    });
+    expect(s.byId(offline.id), isNotNull,
+        reason: 'no deletion marker, so it was never deleted — only never uploaded');
+    expect(s.byId(7), isNotNull, reason: 'and the other device\'s task is kept too');
+    expect(s.pendingMergePush, isTrue, reason: 'the cloud needs the offline task');
+  });
+
+  test('a newer device never replaces the cloud wholesale', () {
+    final s = CadenceStore();
+    s.applyState({'tasks': [taskMap(1, u: 100)], 'updatedAt': 100});
+    s.addTask('Just added here', 'uni'); // this device is now "newer"
+    expect(s.updatedAt, greaterThan(500));
+    s.applyRemoteState({
+      'tasks': [taskMap(1, u: 100), taskMap(2, u: 400), taskMap(3, u: 450)],
+      'updatedAt': 500,
+    });
+    expect(s.byId(2), isNotNull);
+    expect(s.byId(3), isNotNull, reason: 'the cloud\'s tasks must survive');
+    expect(s.tasks.where((t) => t.title == 'Just added here'), hasLength(1));
+  });
+
+  test('a signed-out device\'s untouched sample tasks never reach the account', () async {
+    final s = CadenceStore();
+    await s.wipeDevice(); // as after Sync sign-out: sample tasks, clock 0
+    expect(s.tasks, isNotEmpty);
+    s.addTask('Real task', 'uni');
+    s.applyRemoteState({
+      'tasks': [taskMap(1, u: 100), taskMap(2, u: 100)],
+      'updatedAt': 100,
+    });
+    expect(s.tasks.map((t) => t.title).toSet(), {'Task 1', 'Task 2', 'Real task'});
+  });
+
+  test('a group added or renamed offline survives, and its tasks stay in it', () {
+    final s = CadenceStore();
+    s.applyState({'tasks': [taskMap(1, u: 100)], 'updatedAt': 100});
+    s.addGroup('Gym');
+    final gym = s.groups.last;
+    s.addTask('Leg day', gym.key);
+    final uni = s.groups.firstWhere((g) => g.key == 'uni');
+    s.renameGroup(uni, 'Classes');
+    final later = DateTime.now().millisecondsSinceEpoch + 60000;
+    // The cloud copy (saved later by another device) has neither change.
+    s.applyRemoteState({
+      'groups': [
+        {'key': 'uni', 'name': 'Uni', 'zh': '', 'color': 1, 'u': 100},
+        {'key': 'home', 'name': 'Home', 'zh': '', 'color': 2, 'u': 100},
+      ],
+      'tasks': [taskMap(1, u: 100)],
+      'updatedAt': later,
+    });
+    expect(s.groups.map((g) => g.key), contains(gym.key));
+    expect(s.groups.firstWhere((g) => g.key == 'uni').name, 'Classes');
+    expect(s.tasks.firstWhere((t) => t.title == 'Leg day').group, gym.key);
+  });
+
+  test('a delete here sticks even though the cloud still has the item', () {
+    final s = CadenceStore();
+    s.applyState({'tasks': [taskMap(1, u: 100), taskMap(2, u: 100)], 'updatedAt': 100});
+    s.deleteTask(s.byId(2)!);
+    s.applyRemoteState({
+      'tasks': [taskMap(1, u: 100), taskMap(2, u: 100)],
+      'updatedAt': 100,
+    });
+    expect(s.byId(2), isNull);
+    expect(s.pendingMergePush, isTrue, reason: 'the cloud must learn of the delete');
+  });
+
+  test('merging a copy identical to ours changes nothing and pushes nothing', () {
+    final s = CadenceStore();
+    s.applyState({'tasks': [taskMap(1, u: 100)], 'updatedAt': 100});
+    s.addTask('x', 'uni');
+    s.markScoreSynced(s.score);
+    final echo = Map<String, dynamic>.from(s.exportState());
+    s.applyRemoteState(echo);
+    expect(s.pendingMergePush, isFalse, reason: 'our own upload echoing back');
+    expect(s.tasks, hasLength(2));
+  });
+
+  test('new ids are random, unique and fit in 32 bits', () {
+    final s = CadenceStore();
+    s.applyState({'tasks': <dynamic>[], 'updatedAt': 1});
+    for (var i = 0; i < 200; i++) {
+      s.addTask('t$i', 'uni');
+    }
+    final ids = s.tasks.map((t) => t.id).toSet();
+    expect(ids, hasLength(200));
+    expect(ids.every((id) => id >= 1 << 20 && id <= 0x7FFFFFFF), isTrue);
   });
 
   test('keeping a local task does not rewind the id counter', () {

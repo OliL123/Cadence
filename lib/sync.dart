@@ -193,36 +193,27 @@ class SyncService extends ChangeNotifier {
         .maybeSingle();
     if (row != null && row['data'] != null) {
       final data = Map<String, dynamic>.from(row['data'] as Map);
-      final remoteTs = (data['updatedAt'] ?? 0) as int;
       _readMeta(data);
-      // On an exact tie the two devices disagree with no clock to separate them;
-      // defer to whichever one the user nominated as the main device.
-      final tieGoesToCloud = remoteTs == store.updatedAt &&
-          mainDeviceId != null &&
-          !isMainDevice &&
-          lastDeviceId == mainDeviceId;
-      if (remoteTs > store.updatedAt || tieGoesToCloud) {
-        // Cloud is newer — take it (per-task merge may keep some local edits).
-        store.applyRemoteState(_appState(data));
-        _lastSyncedJson = jsonEncode(store.exportState());
-        lastSyncedAt = DateTime.now();
-        if (store.pendingMergePush) {
-          store.pendingMergePush = false;
-          await _push(force: true); // push the corrected merge back up
-        }
-      } else if (store.updatedAt > remoteTs) {
-        // We genuinely hold newer edits — publish them. The calendar selection
-        // has its own clock, so take that separately if theirs is newer.
-        store.applyRemoteGcalSelection(data);
-        await _push(force: true);
-      } else {
-        store.applyRemoteGcalSelection(data);
-      }
-      // Equal clocks and nothing to arbitrate: leave the cloud alone. Pushing
-      // here is what let a stale device overwrite good cloud data.
+      // Always merge — never "whoever's clock is newer uploads everything".
+      // That rule let a device that had just added one task (or a fresh,
+      // signed-out one) replace the whole account with its own copy.
+      store.applyRemoteState(_appState(data));
+      lastSyncedAt = DateTime.now();
+      await _publishMergeIfNeeded();
     } else {
-      // First device for this account — seed the cloud with local state.
-      await _push(force: true);
+      // First device for this account — nothing to merge with.
+      await _upload();
+    }
+  }
+
+  /// After a merge: upload it if this device contributed something the cloud
+  /// copy lacks; otherwise just note that we're in step with the cloud.
+  Future<void> _publishMergeIfNeeded() async {
+    if (store.pendingMergePush) {
+      store.pendingMergePush = false;
+      await _upload();
+    } else {
+      _lastSyncedJson = jsonEncode(store.exportState());
     }
   }
 
@@ -244,23 +235,13 @@ class SyncService extends ChangeNotifier {
             final rec = payload.newRecord;
             if (rec['data'] == null) return;
             final data = Map<String, dynamic>.from(rec['data'] as Map);
-            final remoteTs = (data['updatedAt'] ?? 0) as int;
             _readMeta(data);
-            // Our own write coming back, or an older one — nothing to apply,
-            // but keep the "who wrote last" labels fresh and still honour a
-            // newer calendar selection (it has its own clock).
-            if (remoteTs <= store.updatedAt) {
-              store.applyRemoteGcalSelection(data);
-              notifyListeners();
-              return;
-            }
+            // Merge whatever arrives. Our own write echoing back merges to no
+            // change; anything this device holds that the incoming copy lacks
+            // (an edit made meanwhile) is uploaded again.
             store.applyRemoteState(_appState(data));
-            _lastSyncedJson = jsonEncode(store.exportState());
             lastSyncedAt = DateTime.now();
-            if (store.pendingMergePush) {
-              store.pendingMergePush = false;
-              _push(force: true); // push the corrected merge back up
-            }
+            _publishMergeIfNeeded().catchError((_) {}); // offline: next change retries
             notifyListeners();
           },
         )
@@ -279,47 +260,21 @@ class SyncService extends ChangeNotifier {
     final json = jsonEncode(store.exportState());
     if (!force && json == _lastSyncedJson) return; // nothing new
     try {
-      // Read before write: the upsert replaces the whole row, so without this
-      // check a device holding older state could wipe newer cloud data.
+      // Read, merge, then write: the upsert replaces the whole row, so the
+      // cloud's copy is folded in first and nothing it holds is lost — even
+      // if another device wrote since we last looked.
       final row =
           await _sb.from(_table).select('data').eq('user_id', uid).maybeSingle();
       final remote = row?['data'];
       if (remote is Map) {
         final data = Map<String, dynamic>.from(remote);
-        final remoteTs = (data['updatedAt'] ?? 0) as int;
-        if (remoteTs > store.updatedAt) {
-          // The cloud moved ahead while we were composing this push — adopt it
-          // instead of clobbering. Our own edits survive via the per-task merge.
-          store.applyRemoteState(_appState(data));
-          _readMeta(data);
-          lastSyncedAt = DateTime.now();
-          if (store.pendingMergePush) {
-            // The merge kept edits the cloud doesn't have, so our state is now
-            // the newest. Publish it — dropping it here would leave the two
-            // devices diverged until the next unrelated local edit.
-            store.pendingMergePush = false;
-            await _overwriteCloud();
-          } else {
-            _lastSyncedJson = jsonEncode(store.exportState());
-          }
-          notifyListeners();
-          return;
-        }
+        _readMeta(data);
+        store.applyRemoteState(_appState(data));
+        lastSyncedAt = DateTime.now();
+        await _publishMergeIfNeeded();
+      } else {
+        await _upload();
       }
-      // Snapshot the payload and its score together: the score marked synced
-      // must be exactly the one uploaded.
-      final payload = _payload();
-      final pushedScore = store.score;
-      await _sb.from(_table).upsert({
-        'user_id': uid,
-        'data': payload,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      });
-      store.markScoreSynced(pushedScore);
-      lastDeviceId = Device.id;
-      lastDeviceName = Device.name;
-      _lastSyncedJson = json;
-      lastSyncedAt = DateTime.now();
       notifyListeners();
     } catch (_) {
       // offline / transient — will retry on the next change
@@ -347,43 +302,46 @@ class SyncService extends ChangeNotifier {
   }
 
   /// On app resume, re-read local state (a home-screen widget tap may have
-  /// changed it) then reconcile with the cloud by timestamp — never a blind
-  /// push, so a stale local copy can't clobber newer cloud data.
+  /// changed it) then merge with the cloud — never a blind push, so a stale
+  /// local copy can't clobber newer cloud data.
   Future<void> onResume() async {
     await store.load();
     store.notify();
     if (isSignedIn) await _pull();
   }
 
-  /// Manual override: force THIS device's data to win (stamps it newest, pushes).
-  Future<void> forcePush() async {
+  /// "Sync now": merge with the cloud and upload anything it's missing,
+  /// reporting the result. (This replaced a "Use this device" override:
+  /// with merging sync, other devices would just merge their items back.)
+  Future<void> syncNow() async {
     if (!isSignedIn) return;
-    store.touch();
-    // A deliberate override: write even if the cloud looks newer.
-    await _overwriteCloud();
-    message = '${Device.name} pushed to the cloud';
+    try {
+      await _pull();
+      message = 'Up to date';
+    } catch (_) {
+      message = 'Couldn\'t reach the sync server — check your connection.';
+    }
     notifyListeners();
   }
 
-  /// Unconditional write, bypassing the read-before-write guard. Only reached
-  /// from the explicit "Use this device" override.
-  Future<void> _overwriteCloud() async {
-    try {
-      final payload = _payload();
-      final pushedScore = store.score;
-      await _sb.from(_table).upsert({
-        'user_id': _sb.auth.currentUser!.id,
-        'data': payload,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      });
-      store.markScoreSynced(pushedScore);
-      lastDeviceId = Device.id;
-      lastDeviceName = Device.name;
-      _lastSyncedJson = jsonEncode(store.exportState());
-      lastSyncedAt = DateTime.now();
-    } catch (err) {
-      message = 'Push failed: $err';
-    }
+  /// Write this device's state to the cloud row. Callers merge first; throws
+  /// when offline.
+  Future<void> _upload() async {
+    // Snapshot the payload and its score together: the score marked synced
+    // must be exactly the one uploaded.
+    final payload = _payload();
+    final pushedScore = store.score;
+    final json = jsonEncode(store.exportState());
+    await _sb.from(_table).upsert({
+      'user_id': _sb.auth.currentUser!.id,
+      'data': payload,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    });
+    store.markScoreSynced(pushedScore);
+    lastDeviceId = Device.id;
+    lastDeviceName = Device.name;
+    _lastSyncedJson = json;
+    lastSyncedAt = DateTime.now();
   }
 
   /// Manual override: replace local data with the cloud copy.
