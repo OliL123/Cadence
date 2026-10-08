@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'palette.dart';
 import 'models.dart';
 import 'tracker/tracker_models.dart';
+import 'tracker/job_sources.dart';
 
 /// Reactive, persisted app state. Every mutation notifies listeners and saves.
 class CadenceStore extends ChangeNotifier {
@@ -43,6 +44,11 @@ class CadenceStore extends ChangeNotifier {
   /// Companies marked important in Career (lower-cased names): they lead
   /// their section in big cards. A setting, so it syncs like one.
   List<String> careerPins = [];
+  /// Find's filters and followed companies (a setting: newest wins).
+  FindPrefs findPrefs = FindPrefs();
+  /// Postings dismissed in Find: key -> "company — title" (kept so the
+  /// ranking can learn what you pass on). Merged as a union across devices.
+  Map<String, String> findDismissed = {};
   List<String> gcalCalendars = []; // chosen Google sub-calendar ids (synced)
   int gcalCalsUpdatedAt = 0; // own LWW clock for the selection (independent)
 
@@ -127,6 +133,8 @@ class CadenceStore extends ChangeNotifier {
     weatherLon = -83.74;
     holidayCountries = ['US'];
     careerPins = [];
+    findPrefs = FindPrefs();
+    findDismissed = {};
     gcalCalendars = [];
     gcalCalsUpdatedAt = 0;
     deleted = {};
@@ -192,6 +200,8 @@ class CadenceStore extends ChangeNotifier {
         'wxLon': weatherLon,
         'holCountries': holidayCountries,
         'careerPins': careerPins,
+        'findPrefs': findPrefs.toJson(),
+        'findDismissed': findDismissed,
         'gcalCals': gcalCalendars,
         'gcalCalsAt': gcalCalsUpdatedAt,
       };
@@ -272,6 +282,12 @@ class CadenceStore extends ChangeNotifier {
     if (j['careerPins'] is List) {
       careerPins = (j['careerPins'] as List).map((e) => e as String).toSet().toList();
     }
+    if (j['findPrefs'] is Map) {
+      findPrefs = FindPrefs.fromJson(Map<String, dynamic>.from(j['findPrefs'] as Map));
+    }
+    if (j['findDismissed'] is Map) {
+      findDismissed = Map<String, String>.from(j['findDismissed'] as Map);
+    }
     // The calendar selection has its own clock so it isn't clobbered by an
     // unrelated edit on another device — only a *newer selection* wins.
     // Strictly newer: on an equal clock the remote is not newer, it's a tie.
@@ -335,6 +351,8 @@ class CadenceStore extends ChangeNotifier {
     final lWx = (weatherPlace, weatherLat, weatherLon);
     final lHol = List<String>.from(holidayCountries);
     final lPins = List<String>.from(careerPins);
+    final lFind = findPrefs;
+    final lDismissed = Map<String, String>.from(findDismissed);
 
     final remoteHasData = ['tasks', 'apps', 'events', 'goals']
         .any((k) => j[k] is List && (j[k] as List).isNotEmpty);
@@ -377,10 +395,18 @@ class CadenceStore extends ChangeNotifier {
       weatherLon = lWx.$3;
       holidayCountries = lHol;
       careerPins = lPins;
+      findPrefs = lFind;
       updatedAt = lUpdated;
       push = true;
     }
     if (lUid > _uid) _uid = lUid;
+    // Dismissals add up from every device.
+    lDismissed.forEach((k, v) {
+      if (!findDismissed.containsKey(k)) {
+        findDismissed[k] = v;
+        push = true;
+      }
+    });
 
     // Points earned here since the last sync are added on top of the
     // incoming total, so melds scored on two devices between syncs both
@@ -1223,6 +1249,74 @@ class CadenceStore extends ChangeNotifier {
         ? careerPins.where((c) => c != k).toList()
         : [...careerPins, k];
     _changed();
+  }
+
+  // ---------- Find (job postings inbox) ----------
+  void setFindPrefs(FindPrefs p) {
+    findPrefs = p;
+    _changed();
+  }
+
+  void dismissPosting(Posting p) {
+    findDismissed[p.key] = '${p.company} — ${p.title}';
+    _changed();
+  }
+
+  void undismissPosting(String key) {
+    if (findDismissed.remove(key) != null) _changed();
+  }
+
+  /// Postings already handled: added as an application (by posting id or
+  /// link) or dismissed — Find doesn't show them again.
+  Set<String> get handledPostingKeys => {
+        ...findDismissed.keys,
+        for (final a in applications)
+          if (a.postingId != null) a.postingId!,
+      };
+  Set<String> get applicationLinks => {
+        for (final a in applications)
+          if (a.link != null) a.link!.trim(),
+      };
+
+  /// Add a posting to Applications as a to-apply item, tagged as Find's.
+  Application addPosting(Posting p) {
+    final a = Application(
+      id: _newId(),
+      company: p.company,
+      role: p.title,
+      track: trackFor(p),
+      term: findPrefs.term,
+      location: p.locations.take(3).join('; '),
+      link: p.url,
+      source: p.source == 'simplify' ? 'simplify' : 'company-site',
+      deadline: p.deadline,
+      origin: 'cadence',
+      postingId: p.key,
+      posted: p.posted == null ? null : isoDate(p.posted!),
+      uAt: _now,
+    );
+    applications.add(a);
+    _changed();
+    return a;
+  }
+
+  /// Flag applications whose posting has closed (still to-apply ones; it's
+  /// moot after applying). Returns how many changed.
+  int markPostingsClosed(Set<String> closedKeys) {
+    var n = 0;
+    final t = _now;
+    for (final a in applications) {
+      if (a.postingId != null &&
+          !a.postingClosed &&
+          a.status == 'to-apply' &&
+          closedKeys.contains(a.postingId)) {
+        a.postingClosed = true;
+        a.uAt = t;
+        n++;
+      }
+    }
+    if (n > 0) _changed();
+    return n;
   }
 
   // ---------- duplicates ----------

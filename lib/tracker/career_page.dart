@@ -11,6 +11,10 @@ import '../platform/csv_io_stub.dart'
 import 'career_forms.dart';
 import 'tracker_csv.dart';
 import 'tracker_models.dart';
+import 'job_fetch.dart';
+import 'job_sources.dart';
+
+part 'find_tab.dart';
 
 const _wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -51,7 +55,7 @@ class CareerPage extends StatefulWidget {
 }
 
 class _CareerPageState extends State<CareerPage> {
-  String _tab = 'overview'; // overview | apps | events
+  String _tab = 'overview'; // overview | apps | events | find
   String _narrowPane = 'schedule'; // overview on a narrow screen: schedule | goals
   String? _fTrack, _fStatus, _fSponsor;
 
@@ -286,6 +290,7 @@ class _CareerPageState extends State<CareerPage> {
             child: switch (_tab) {
               'apps' => _AppsTab(this),
               'events' => _EventsTab(this),
+              'find' => _FindTab(this),
               _ => _OverviewTab(this),
             },
           ),
@@ -319,6 +324,8 @@ class _CareerPageState extends State<CareerPage> {
         tab('apps', 'Applications ${store.applications.length}'),
         Container(width: 2, height: 30, color: C.green),
         tab('events', 'Events ${store.trackEvents.length}'),
+        Container(width: 2, height: 30, color: C.green),
+        tab('find', 'Find'),
       ]),
     );
     final actions = Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1373,54 +1380,6 @@ class _AppsTab extends StatelessWidget {
   static String _companyKey(String status, List<Application> g) =>
       '$status|${g.first.company.trim().toLowerCase()}';
 
-  Widget _tile({
-    required Color color,
-    required Widget child,
-    VoidCallback? onTap,
-    double? height,
-  }) =>
-      Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Material(
-          type: MaterialType.transparency,
-          child: Ink(
-            height: height,
-            decoration: BoxDecoration(
-              color: C.paper2,
-              border: Border.all(color: color, width: 2),
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: const [BoxShadow(color: Color(0x22462D0F), offset: Offset(2, 2))],
-            ),
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                margin: const EdgeInsets.all(3),
-                padding: const EdgeInsets.fromLTRB(8, 7, 3, 7),
-                decoration: BoxDecoration(
-                  border: Border.all(color: color.withValues(alpha: .5), width: 1.2),
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: child,
-              ),
-            ),
-          ),
-        ),
-      );
-
-  /// The company's initial on a filled tile in [color].
-  Widget _monogram(String company, Color color) => Container(
-        width: 34,
-        height: 34,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(6),
-          boxShadow: const [BoxShadow(color: Color(0x33462D0F), offset: Offset(1.5, 1.5))],
-        ),
-        child: Text(company.trim().isEmpty ? '?' : company.trim()[0].toUpperCase(),
-            style: disp(size: 17, w: FontWeight.w700, color: C.creamTxt)),
-      );
 
   /// ✓ for a to-apply role (marks it applied); an empty slot otherwise, so
   /// the buttons beside it never shift.
@@ -1981,3 +1940,56 @@ class _EventsTab extends StatelessWidget {
     );
   }
 }
+
+// ---- shared card pieces (Applications and Find) ----
+
+/// An enamel-signboard card like the Tasks tab's: a double border in
+/// [color] and a hard offset shadow.
+Widget _tile({
+  required Color color,
+  required Widget child,
+  VoidCallback? onTap,
+  double? height,
+}) =>
+    Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Ink(
+          height: height,
+          decoration: BoxDecoration(
+            color: C.paper2,
+            border: Border.all(color: color, width: 2),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: const [BoxShadow(color: Color(0x22462D0F), offset: Offset(2, 2))],
+          ),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              margin: const EdgeInsets.all(3),
+              padding: const EdgeInsets.fromLTRB(8, 7, 3, 7),
+              decoration: BoxDecoration(
+                border: Border.all(color: color.withValues(alpha: .5), width: 1.2),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+
+/// The company's initial on a filled tile in [color].
+Widget _monogram(String company, Color color) => Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(6),
+        boxShadow: const [BoxShadow(color: Color(0x33462D0F), offset: Offset(1.5, 1.5))],
+      ),
+      child: Text(company.trim().isEmpty ? '?' : company.trim()[0].toUpperCase(),
+          style: disp(size: 17, w: FontWeight.w700, color: C.creamTxt)),
+    );

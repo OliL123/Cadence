@@ -111,6 +111,11 @@ class Application {
   String? nextActionDate; // yyyy-mm-dd
   String? notes;
   String? origin; // see [origins]; null = added by you
+  /// The job posting it came from in Find ("simplify:<id>", "gh:riotgames:<id>"),
+  /// when that was posted, and whether the posting has since closed.
+  String? postingId;
+  String? posted; // yyyy-mm-dd
+  bool postingClosed;
   int uAt; // per-item sync clock, like Task.uAt
 
   String get from => origin ?? 'you';
@@ -135,6 +140,9 @@ class Application {
     this.nextActionDate,
     this.notes,
     this.origin,
+    this.postingId,
+    this.posted,
+    this.postingClosed = false,
     this.uAt = 0,
   });
 
@@ -160,6 +168,9 @@ class Application {
         'next_action_date': nextActionDate,
         'notes': notes,
         'origin': origin,
+        'posting_id': postingId,
+        'posted': posted,
+        if (postingClosed) 'posting_closed': true,
         'u': uAt,
       };
 
@@ -183,6 +194,9 @@ class Application {
         nextActionDate: _s(j['next_action_date']),
         notes: _s(j['notes']),
         origin: _pickOrNull(j['origin'], origins),
+        postingId: _s(j['posting_id']),
+        posted: _s(j['posted']),
+        postingClosed: j['posting_closed'] == true || j['posting_closed'] == 'true',
         uAt: (j['u'] as num?)?.toInt() ?? 0,
       );
 
@@ -190,6 +204,7 @@ class Application {
     'id', 'company', 'role', 'track', 'term', 'location', 'link', 'source',
     'sponsorship', 'grad_req', 'cv_version', 'status', 'date_applied',
     'deadline', 'contact', 'next_action', 'next_action_date', 'notes', 'origin',
+    'posting_id', 'posted', 'posting_closed',
   ];
 }
 
