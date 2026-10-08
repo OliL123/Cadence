@@ -300,33 +300,48 @@ class _CareerPageState extends State<CareerPage> {
   }
 
   Widget _header() {
-    Widget tab(String id, String label) {
+    // Four equal tabs sharing the full width, so none (Find especially) is a
+    // cramped little button; labels shrink to fit on a phone.
+    Widget tab(String id, String label, IconData icon) {
       final on = _tab == id;
-      return InkWell(
-        onTap: () => setState(() => _tab = id),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          color: on ? C.green : C.paper2,
-          child: Text(label,
-              style: TextStyle(
-                  fontSize: 12.5, fontWeight: FontWeight.w700, color: on ? C.creamTxt : C.greenD)),
+      final fg = on ? C.creamTxt : C.greenD;
+      return Expanded(
+        child: InkWell(
+          onTap: () => setState(() => _tab = id),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            color: on ? C.green : C.paper2,
+            alignment: Alignment.center,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(icon, size: 17, color: fg),
+                const SizedBox(width: 7),
+                Text(label,
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: fg)),
+              ]),
+            ),
+          ),
         ),
       );
     }
 
+    Widget divider() => Container(width: 2, color: C.green);
     final tabs = Container(
       decoration: BoxDecoration(
           border: Border.all(color: C.green, width: 2), borderRadius: BorderRadius.circular(8)),
       clipBehavior: Clip.antiAlias,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        tab('overview', 'Overview'),
-        Container(width: 2, height: 30, color: C.green),
-        tab('apps', 'Applications ${store.applications.length}'),
-        Container(width: 2, height: 30, color: C.green),
-        tab('events', 'Events ${store.trackEvents.length}'),
-        Container(width: 2, height: 30, color: C.green),
-        tab('find', 'Find'),
-      ]),
+      child: IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          tab('overview', 'Overview', Icons.dashboard_outlined),
+          divider(),
+          tab('apps', 'Applications ${store.applications.length}', Icons.work_outline),
+          divider(),
+          tab('events', 'Events ${store.trackEvents.length}', Icons.event_outlined),
+          divider(),
+          tab('find', 'Find', Icons.travel_explore),
+        ]),
+      ),
     );
     final actions = Row(mainAxisSize: MainAxisSize.min, children: [
       FilledButton.icon(
@@ -381,17 +396,17 @@ class _CareerPageState extends State<CareerPage> {
       padding: const EdgeInsets.fromLTRB(14, 12, 6, 10),
       child: LayoutBuilder(builder: (_, c) {
         if (c.maxWidth < 640) {
-          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [title, const Spacer(), actions]),
             const SizedBox(height: 8),
-            SingleChildScrollView(scrollDirection: Axis.horizontal, child: tabs),
+            tabs,
           ]);
         }
         return Row(children: [
           title,
           const SizedBox(width: 18),
-          tabs,
-          const Spacer(),
+          Expanded(child: tabs),
+          const SizedBox(width: 12),
           actions,
         ]);
       }),

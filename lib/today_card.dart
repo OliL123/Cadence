@@ -881,7 +881,7 @@ class _TodayCardState extends State<TodayCard> {
                   if (g.events.isEmpty)
                     Text('Nothing in the next three weeks.', style: _sans(13, C.ink2))
                   else
-                    for (final e in g.events) _calFullItem(e),
+                    ..._calByDay(g.events),
                 ],
               ),
             ),
@@ -917,8 +917,57 @@ class _TodayCardState extends State<TodayCard> {
         ),
       );
 
+  /// The expanded list, grouped under a heading per day — "Today ———",
+  /// "Tomorrow ———", "Saturday ———" — so each row only needs its time.
+  List<Widget> _calByDay(List<GCalEvent> events) {
+    final out = <Widget>[];
+    DateTime? current;
+    for (final e in events) {
+      final day = DateTime(e.start.year, e.start.month, e.start.day);
+      if (day != current) {
+        current = day;
+        out.add(_calDayHeader(day, first: out.isEmpty));
+      }
+      out.add(_calFullItem(e));
+    }
+    return out;
+  }
+
+  Widget _calDayHeader(DateTime day, {required bool first}) {
+    final now = DateTime.now();
+    final days = day.difference(DateTime(now.year, now.month, now.day)).inDays;
+    const wd = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final label = days == 0
+        ? 'Today'
+        : days == 1
+            ? 'Tomorrow'
+            : days > 1 && days < 7
+                ? wd[day.weekday - 1]
+                : '${wd[day.weekday - 1].substring(0, 3)} ${day.day} ${mon[day.month - 1]}';
+    final color = days == 0 ? C.red : C.navy;
+    return Padding(
+      padding: EdgeInsets.only(top: first ? 2 : 14, bottom: 4),
+      child: Row(children: [
+        Text(label, style: _sans(13, color, FontWeight.w700)),
+        const SizedBox(width: 10),
+        Expanded(child: Container(height: 1.2, color: color.withValues(alpha: .35))),
+      ]),
+    );
+  }
+
+  /// An event's time within its day ("3p", "10:30a"), or "all day".
+  static String _evTime(GCalEvent e) {
+    if (e.allDay) return 'all day';
+    final h = e.start.hour;
+    final m = e.start.minute.toString().padLeft(2, '0');
+    final ap = h < 12 ? 'a' : 'p';
+    final h12 = h % 12 == 0 ? 12 : h % 12;
+    return m == '00' ? '$h12$ap' : '$h12:$m$ap';
+  }
+
   Widget _calFullItem(GCalEvent e) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 5),
+        padding: const EdgeInsets.fromLTRB(4, 5, 0, 5),
         child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
           Container(
             width: 10,
@@ -932,7 +981,7 @@ class _TodayCardState extends State<TodayCard> {
                   overflow: TextOverflow.ellipsis,
                   style: _sans(14, C.ink, FontWeight.w600))),
           const SizedBox(width: 10),
-          Text(_evWhen(e), style: _mono(11, C.ink2)),
+          Text(_evTime(e), style: _mono(11, C.ink2)),
         ]),
       );
 

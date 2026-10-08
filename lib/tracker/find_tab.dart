@@ -18,7 +18,8 @@ class _FindTabState extends State<_FindTab> {
   final _search = TextEditingController();
   String _query = '';
   bool? _showFilters; // null = decide by width the first time
-  int _moreShown = 60;
+  int _moreShown = 60; // companies shown under MORE MATCHES
+  final _openCompanies = <String>{}; // companies whose extra roles are expanded
 
   FindService get svc => FindService.instance;
 
@@ -131,15 +132,20 @@ class _FindTabState extends State<_FindTab> {
             ? b.$2.compareTo(a.$2)
             : (b.$1.posted ?? DateTime(2000)).compareTo(a.$1.posted ?? DateTime(2000)));
 
-        final top = scored.take(12).map((x) => x.$1).toList();
-        final fresh = scored.skip(12).map((x) => x.$1).where(svc.isNew).toList();
-        final rest = scored
-            .skip(12)
-            .map((x) => x.$1)
-            .where((p) => !svc.isNew(p))
-            .take(_moreShown)
-            .toList();
-        final restTotal = scored.length - 12 - fresh.length;
+        // One entry per company, in the order of its best-ranked role; the
+        // company's other roles travel with it (collapsed under its card)
+        // instead of filling the grid with the same company again and again.
+        final byCompany = <String, List<Posting>>{};
+        for (final (p, _) in scored) {
+          (byCompany[p.company.toLowerCase().trim()] ??= []).add(p);
+        }
+        final groups = byCompany.values.toList();
+        final top = groups.take(12).toList();
+        final fresh = groups.skip(12).where((g) => svc.isNew(g.first)).toList();
+        final restAll = groups.skip(12).where((g) => !svc.isNew(g.first)).toList();
+        final rest = restAll.take(_moreShown).toList();
+        final restTotal = restAll.length;
+        int roles(List<List<Posting>> gs) => gs.fold(0, (n, g) => n + g.length);
 
         final cols = (c.maxWidth / 300).floor().clamp(1, 6);
         final rows = <Widget Function()>[
@@ -160,31 +166,38 @@ class _FindTabState extends State<_FindTab> {
                           'dates, or follow more companies.')),
                 ),
         ];
-        void section(String title, Color color, List<Posting> ps, {String? count}) {
-          if (ps.isEmpty) return;
-          rows.add(() => _sectionTitle(title, color: color, count: count ?? '${ps.length}'));
-          for (var i = 0; i < ps.length; i += cols) {
-            final chunk = ps.sublist(i, i + cols > ps.length ? ps.length : i + cols);
-            rows.add(() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  for (var k = 0; k < cols; k++)
-                    Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(right: k < cols - 1 ? 10 : 0),
-                        child: k < chunk.length ? _card(chunk[k]) : const SizedBox.shrink(),
+        void section(String title, Color color, List<List<Posting>> gs, {List<List<Posting>>? all}) {
+          if (gs.isEmpty) return;
+          final counted = all ?? gs;
+          final n = roles(counted);
+          rows.add(() => _sectionTitle(title,
+              color: color,
+              count: n == counted.length ? '$n' : '$n roles · ${counted.length} companies'));
+          for (var i = 0; i < gs.length; i += cols) {
+            final chunk = gs.sublist(i, i + cols > gs.length ? gs.length : i + cols);
+            rows.add(() => Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    for (var k = 0; k < cols; k++)
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(right: k < cols - 1 ? 10 : 0),
+                          child: k < chunk.length ? _group(chunk[k]) : const SizedBox.shrink(),
+                        ),
                       ),
-                    ),
-                ]));
+                  ]),
+                ));
           }
         }
 
         section('TOP PICKS FOR YOU', C.red, top);
         section('NEW SINCE YOUR LAST VISIT', C.green, fresh);
-        section('MORE MATCHES', C.ink3, rest, count: restTotal > 0 ? '$restTotal' : null);
+        section('MORE MATCHES', C.ink3, rest, all: restAll);
         if (rest.length < restTotal) {
           rows.add(() => Center(
                 child: TextButton(
                   onPressed: () => setState(() => _moreShown += 60),
-                  child: Text('Show more (${restTotal - rest.length} left)'),
+                  child: Text('Show more (${restTotal - rest.length} more companies)'),
                 ),
               ));
         }
@@ -380,6 +393,122 @@ class _FindTabState extends State<_FindTab> {
               ),
               const Text('Edit', style: TextStyle(fontSize: 12, color: C.greenD, fontWeight: FontWeight.w700)),
             ]),
+          ),
+        ),
+      );
+
+  /// A company: its best role as a full card, and its other roles collapsed
+  /// into a "+N more roles" bar that expands into compact rows.
+  Widget _group(List<Posting> g) {
+    if (g.length == 1) return _card(g.first);
+    final key = g.first.company.toLowerCase().trim();
+    final open = _openCompanies.contains(key);
+    final color = _colorOf(g.first);
+    final others = g.skip(1).toList();
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _card(g.first),
+      // The bar tucks under the card like a stack of more cards.
+      Transform.translate(
+        offset: const Offset(0, -6),
+        child: Material(
+          color: color.withValues(alpha: .12),
+          borderRadius: const BorderRadius.vertical(bottom: Radius.circular(9)),
+          child: InkWell(
+            onTap: () => setState(() => open ? _openCompanies.remove(key) : _openCompanies.add(key)),
+            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(9)),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 10, 6),
+              decoration: BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: color.withValues(alpha: .5)),
+                  right: BorderSide(color: color.withValues(alpha: .5)),
+                  bottom: BorderSide(color: color.withValues(alpha: .5)),
+                ),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(9)),
+              ),
+              child: Row(children: [
+                Icon(Icons.layers_outlined, size: 15, color: color),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    open
+                        ? 'Hide ${others.length} more at ${g.first.company}'
+                        : '+${others.length} more ${others.length == 1 ? 'role' : 'roles'} at ${g.first.company}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+                  ),
+                ),
+                Icon(open ? Icons.expand_less : Icons.expand_more, size: 18, color: color),
+              ]),
+            ),
+          ),
+        ),
+      ),
+      if (open)
+        for (final p in others) _roleRow(p),
+    ]);
+  }
+
+  /// One of a company's other roles, compact: title, where/when, Add, Dismiss.
+  Widget _roleRow(Posting p) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Material(
+          color: C.paper,
+          borderRadius: BorderRadius.circular(8),
+          child: InkWell(
+            onTap: () => csvio.openLink(p.url),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(11, 7, 4, 7),
+              decoration: BoxDecoration(
+                border: Border.all(color: C.line),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(children: [
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Flexible(
+                        child: Text(p.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 12.5, fontWeight: FontWeight.w600, color: C.ink, height: 1.25)),
+                      ),
+                      if (svc.isNew(p)) ...[
+                        const SizedBox(width: 6),
+                        _pill('NEW', C.green, filled: true),
+                      ],
+                    ]),
+                    const SizedBox(height: 2),
+                    Text(
+                      [
+                        _where(p),
+                        p.deadline != null ? 'closes ${fmtWhen(p.deadline)}' : _ago(p.posted),
+                      ].where((s) => s.isNotEmpty).join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: mono(size: 10, color: p.deadline != null ? C.red : C.ink3),
+                    ),
+                  ]),
+                ),
+                IconButton(
+                  tooltip: 'Add to Applications',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+                  icon: const Icon(Icons.add_circle_outline, size: 20, color: C.green),
+                  onPressed: () => _add(p),
+                ),
+                IconButton(
+                  tooltip: 'Dismiss',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+                  icon: const Icon(Icons.close, size: 18, color: C.ink3),
+                  onPressed: () => _dismiss(p),
+                ),
+              ]),
+            ),
           ),
         ),
       );
