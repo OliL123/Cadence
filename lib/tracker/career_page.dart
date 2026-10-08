@@ -54,6 +54,22 @@ class _CareerPageState extends State<CareerPage> {
   String _narrowPane = 'schedule'; // overview on a narrow screen: schedule | goals
   String? _fTrack, _fStatus, _fSponsor;
 
+  /// Applications: search text, and the layout — a full-width list by status
+  /// (default; reads well when one status holds hundreds) or Kanban columns.
+  final _appSearch = TextEditingController();
+  String _appQuery = '';
+  bool _appBoard = false;
+
+  /// List-view sections the user opened or closed, relative to the default
+  /// (closed outcomes — rejected, ghosted, withdrawn — start folded).
+  final Set<String> _toggledSections = {};
+
+  @override
+  void dispose() {
+    _appSearch.dispose();
+    super.dispose();
+  }
+
   /// For the tab widgets, which hold no state of their own.
   void _update(VoidCallback change) => setState(change);
 
@@ -914,7 +930,20 @@ class _AppsTab extends StatelessWidget {
   List<Application> get _filtered => store.applications.where((a) =>
       (page._fTrack == null || a.track == page._fTrack) &&
       (page._fStatus == null || a.status == page._fStatus) &&
-      (page._fSponsor == null || a.sponsorship == page._fSponsor)).toList();
+      (page._fSponsor == null || a.sponsorship == page._fSponsor) &&
+      _matches(a)).toList();
+
+  /// Every word of the search appears somewhere in the company, role, term,
+  /// location, contact or notes ("riot unity" finds Riot's Unity roles).
+  bool _matches(Application a) {
+    final words = page._appQuery.toLowerCase().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+    if (words.isEmpty) return true;
+    final hay = [a.company, a.role, a.term, a.location, a.contact, a.notes]
+        .whereType<String>()
+        .join(' ')
+        .toLowerCase();
+    return words.every(hay.contains);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -955,6 +984,8 @@ class _AppsTab extends StatelessWidget {
       Padding(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
         child: Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          _searchBox(),
+          _layoutToggle(),
           _filter('Track', page._fTrack, appTracks, (v) => page._update(() => page._fTrack = v)),
           _filter('Status', page._fStatus, appStatuses, (v) => page._update(() => page._fStatus = v),
               labels: appStatusLabel),
@@ -965,17 +996,160 @@ class _AppsTab extends StatelessWidget {
       Expanded(
         child: store.applications.isEmpty
             ? Center(child: _none('No applications yet — tap Add.'))
-            : ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
-                children: [
-                  for (final s in statuses)
-                    _column(context, s, apps.where((a) => a.status == s).toList()),
-                ],
-              ),
+            : apps.isEmpty
+                ? Center(child: _none('Nothing matches — try fewer words or clear a filter.'))
+                : !page._appBoard
+                    ? _listView(context, apps)
+                    : ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+                        children: [
+                          for (final s in statuses)
+                            _column(context, s, apps.where((a) => a.status == s).toList()),
+                        ],
+                      ),
       ),
     ]);
   }
+
+  Widget _searchBox() => SizedBox(
+        width: 250,
+        height: 34,
+        child: TextField(
+          controller: page._appSearch,
+          onChanged: (v) => page._update(() => page._appQuery = v),
+          style: const TextStyle(fontSize: 13, color: C.ink),
+          decoration: InputDecoration(
+            hintText: 'Search company, role, place…',
+            hintStyle: const TextStyle(fontSize: 12.5, color: C.ink3),
+            prefixIcon: const Icon(Icons.search, size: 18, color: C.ink3),
+            prefixIconConstraints: const BoxConstraints(minWidth: 34),
+            suffixIcon: page._appQuery.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'Clear search',
+                    icon: const Icon(Icons.close, size: 16, color: C.ink3),
+                    onPressed: () => page._update(() {
+                      page._appSearch.clear();
+                      page._appQuery = '';
+                    }),
+                  ),
+            isDense: true,
+            filled: true,
+            fillColor: C.paper,
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(7),
+                borderSide: const BorderSide(color: C.line, width: 1.4)),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(7),
+                borderSide: const BorderSide(color: C.green, width: 1.6)),
+          ),
+        ),
+      );
+
+  /// List | Board.
+  Widget _layoutToggle() {
+    Widget seg(String label, IconData icon, bool board) {
+      final on = page._appBoard == board;
+      return InkWell(
+        onTap: () => page._update(() => page._appBoard = board),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          color: on ? C.green : C.paper,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 15, color: on ? C.creamTxt : C.ink2),
+            const SizedBox(width: 4),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w700, color: on ? C.creamTxt : C.ink2)),
+          ]),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+          border: Border.all(color: C.line, width: 1.4), borderRadius: BorderRadius.circular(7)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          seg('List', Icons.view_agenda_outlined, false),
+          seg('Board', Icons.view_week_outlined, true),
+        ]),
+      ),
+    );
+  }
+
+  /// List view order: what's in motion first, then the to-apply backlog,
+  /// then closed outcomes (folded until opened).
+  static const _listOrder = [
+    'offer', 'final-round', 'interview', 'oa', 'applied', 'to-apply',
+    'rejected', 'ghosted', 'withdrawn',
+  ];
+  static const _foldedByDefault = {'rejected', 'ghosted', 'withdrawn'};
+
+  /// Full width, one section per status, cards flowing across as many
+  /// columns as fit — instead of hundreds stacked in one narrow column.
+  /// Rows are built lazily.
+  Widget _listView(BuildContext context, List<Application> apps) =>
+      LayoutBuilder(builder: (context, c) {
+        final perRow = (c.maxWidth / 300).floor().clamp(1, 6);
+        final searching = page._appQuery.trim().isNotEmpty;
+        final rows = <Widget Function()>[];
+        for (final s in _listOrder) {
+          final inStatus = apps.where((a) => a.status == s).toList();
+          if (inStatus.isEmpty) continue;
+          // A search shows every match, folded section or not.
+          final folded = !searching &&
+              (_foldedByDefault.contains(s) != page._toggledSections.contains(s));
+          rows.add(() => _sectionHeader(s, inStatus.length, folded));
+          if (folded) continue;
+          final groups = _groupsOf(inStatus);
+          for (var i = 0; i < groups.length; i += perRow) {
+            final chunk = groups.sublist(i, i + perRow > groups.length ? groups.length : i + perRow);
+            rows.add(() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  for (var k = 0; k < perRow; k++)
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(right: k < perRow - 1 ? 10 : 0),
+                        child: k < chunk.length
+                            ? _groupCard(context, s, chunk[k])
+                            : const SizedBox.shrink(),
+                      ),
+                    ),
+                ]));
+          }
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+          itemCount: rows.length,
+          itemBuilder: (_, i) => rows[i](),
+        );
+      });
+
+  Widget _sectionHeader(String status, int count, bool folded) => Padding(
+        padding: const EdgeInsets.only(top: 6, bottom: 8),
+        child: InkWell(
+          onTap: () => page._update(() {
+            if (!page._toggledSections.remove(status)) page._toggledSections.add(status);
+          }),
+          borderRadius: BorderRadius.circular(7),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+                color: statusColor(status), borderRadius: BorderRadius.circular(7)),
+            child: Row(children: [
+              Text(appStatusLabel[status]!.toUpperCase(),
+                  style: disp(size: 13, w: FontWeight.w700, color: C.creamTxt)),
+              const SizedBox(width: 8),
+              Text('$count', style: mono(size: 11, color: C.creamTxt)),
+              const Spacer(),
+              Icon(folded ? Icons.expand_more : Icons.expand_less, size: 18, color: C.creamTxt),
+            ]),
+          ),
+        ),
+      );
 
   Widget _filter(String label, String? value, List<String> options, ValueChanged<String?> onPick,
           {Map<String, String>? labels}) =>
@@ -1028,18 +1202,24 @@ class _AppsTab extends StatelessWidget {
   /// single card that opens to list them, so a big imported list reads as
   /// "who" first. Built lazily, since a column can hold hundreds.
   Widget _grouped(BuildContext context, String status, List<Application> apps) {
+    final groups = _groupsOf(apps);
+    return ListView.builder(
+      itemCount: groups.length,
+      itemBuilder: (context, i) => _groupCard(context, status, groups[i]),
+    );
+  }
+
+  /// [apps] gathered by company, in first-seen order.
+  static List<List<Application>> _groupsOf(List<Application> apps) {
     final byCompany = <String, List<Application>>{};
     for (final a in apps) {
       byCompany.putIfAbsent(a.company.trim().toLowerCase(), () => []).add(a);
     }
-    final groups = byCompany.values.toList();
-    return ListView.builder(
-      itemCount: groups.length,
-      itemBuilder: (context, i) => groups[i].length == 1
-          ? _appCard(context, groups[i].first)
-          : _companyCard(context, status, groups[i]),
-    );
+    return byCompany.values.toList();
   }
+
+  Widget _groupCard(BuildContext context, String status, List<Application> g) =>
+      g.length == 1 ? _appCard(context, g.first) : _companyCard(context, status, g);
 
   Widget _tick(Application a, {double size = 20}) => a.status != 'to-apply'
       ? const SizedBox.shrink()
