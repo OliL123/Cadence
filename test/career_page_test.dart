@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'career_fixtures.dart';
 import 'package:cadence/store.dart';
 import 'package:cadence/tracker/career_page.dart';
 
@@ -17,12 +18,16 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('empty state offers the starting list', (tester) async {
+  testWidgets('empty state offers import and add; a list shows the overview', (tester) async {
     store.applications = [];
     store.trackEvents = [];
+    store.goals = [];
     await pump(tester);
-    expect(find.text('Load my starting list'), findsOneWidget);
-    await tester.tap(find.text('Load my starting list'));
+    // No built-in starting list: real ones are imported from private CSVs.
+    expect(find.text('Import CSV'), findsOneWidget);
+    expect(find.text('Add your first item'), findsOneWidget);
+    expect(find.text('Load my starting list'), findsNothing);
+    loadSample(store);
     await tester.pumpAndSettle();
     expect(store.applications, hasLength(5));
     expect(store.trackEvents, hasLength(7));
@@ -31,14 +36,14 @@ void main() {
     expect(find.text('PIPELINE'), findsOneWidget);
     await tester.dragUntilVisible(find.text('DATE TBD'), find.byType(ListView).first,
         const Offset(0, -300));
-    expect(find.text('Epic Games recruiter coaching session'), findsOneWidget);
+    expect(find.text('Recruiter coaching session'), findsOneWidget);
   });
 
   testWidgets('a goal can be added from the overview', (tester) async {
     store.applications = [];
     store.trackEvents = [];
     store.goals = [];
-    store.loadCareerStarter();
+    loadSample(store);
     await pump(tester);
     await tester.tap(find.widgetWithText(TextButton, 'Goal'));
     await tester.pumpAndSettle();
@@ -53,27 +58,27 @@ void main() {
   testWidgets('applications board and events list render', (tester) async {
     store.applications = [];
     store.trackEvents = [];
-    store.loadCareerStarter();
+    loadSample(store);
     await pump(tester);
 
     await tester.tap(find.text('Applications 5'));
     await tester.pumpAndSettle();
     expect(find.text('TO APPLY'), findsOneWidget);
-    expect(find.text('Microsoft'), findsOneWidget);
-    expect(find.text('NO SPONSORSHIP'), findsOneWidget, reason: 'Riot is flagged');
+    expect(find.text('Northwind'), findsOneWidget);
+    expect(find.text('NO SPONSORSHIP'), findsOneWidget, reason: 'Lantern is flagged');
 
     await tester.tap(find.text('Events 7'));
     await tester.pumpAndSettle();
     // The list builds lazily; scroll down to the undated group.
     await tester.dragUntilVisible(find.text('DATE TBD'), find.byType(ListView).first,
         const Offset(0, -300));
-    expect(find.text('DATE TBD'), findsOneWidget, reason: 'the Epic coaching session');
+    expect(find.text('DATE TBD'), findsOneWidget, reason: 'the coaching session');
   });
 
   testWidgets('add an application through the form, then move it', (tester) async {
     store.applications = [];
     store.trackEvents = [];
-    store.loadCareerStarter();
+    loadSample(store);
     await pump(tester);
     await tester.tap(find.text('Applications 5'));
     await tester.pumpAndSettle();
@@ -97,7 +102,7 @@ void main() {
   testWidgets('saving without a company shows an error', (tester) async {
     store.applications = [];
     store.trackEvents = [];
-    store.loadCareerStarter();
+    loadSample(store);
     await pump(tester);
     await tester.tap(find.text('Applications 5'));
     await tester.pumpAndSettle();

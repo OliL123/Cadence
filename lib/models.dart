@@ -103,14 +103,23 @@ class Group {
   String name;
   String zh;
   int color;
-  Group({required this.key, required this.name, required this.zh, required this.color});
+  int uAt; // ms-since-epoch last edited (per-group sync merge); 0 = default/untouched
+  Group({
+    required this.key,
+    required this.name,
+    required this.zh,
+    required this.color,
+    this.uAt = 0,
+  });
   Color get c => Color(color);
-  Map<String, dynamic> toJson() => {'key': key, 'name': name, 'zh': zh, 'color': color};
+  Map<String, dynamic> toJson() =>
+      {'key': key, 'name': name, 'zh': zh, 'color': color, 'u': uAt};
   factory Group.fromJson(Map<String, dynamic> j) => Group(
         key: j['key'] ?? '',
         name: j['name'] ?? '',
         zh: j['zh'] ?? '',
         color: j['color'] ?? 0xFF888888,
+        uAt: (j['u'] as num?)?.toInt() ?? 0,
       );
 }
 

@@ -75,6 +75,11 @@ dev_dependencies:
   # Used by tool/circle_favicon.dart to mask the icon into a circle
   image: ^4.3.0
 
+  # The recommended lint set, activated in analysis_options.yaml. (It used to
+  # sit inside the flutter_launcher_icons block below, so it was never
+  # installed and no lints ran.)
+  flutter_lints: ^6.0.0
+
 flutter_launcher_icons:
   android: true
   ios: false
@@ -87,13 +92,6 @@ flutter_launcher_icons:
     image_path: "assets/icon/ic_circle.png"
     background_color: "#F3E6CC"
     theme_color: "#BE3A2B"
-
-  # The "flutter_lints" package below contains a set of recommended lints to
-  # encourage good coding practices. The lint set provided by the package is
-  # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
-  flutter_lints: ^6.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

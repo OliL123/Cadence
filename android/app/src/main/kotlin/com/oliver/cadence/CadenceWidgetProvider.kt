@@ -28,6 +28,22 @@ class CadenceWidgetProvider : AppWidgetProvider() {
 
         fun currentPage(context: Context): String =
             HomeWidgetPlugin.getData(context).getString(PREF_PAGE, PAGE_FOCUS) ?: PAGE_FOCUS
+
+        /** Unfinished tasks on the All page whose "due" (yyyy-MM-dd) is today. */
+        fun dueTodayCount(context: Context): Int {
+            val raw = HomeWidgetPlugin.getData(context).getString("cadence_all", null) ?: return 0
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                .format(java.util.Date())
+            return try {
+                val arr = org.json.JSONArray(raw)
+                (0 until arr.length()).count { i ->
+                    val o = arr.getJSONObject(i)
+                    !o.optBoolean("done") && o.optString("due") == today
+                }
+            } catch (e: Exception) {
+                0
+            }
+        }
     }
 
     override fun onUpdate(
@@ -68,9 +84,11 @@ class CadenceWidgetProvider : AppWidgetProvider() {
         else R.layout.cadence_widget
         val views = RemoteViews(context.packageName, layoutRes)
 
-        // Header shows a "due today" count when there is one.
-        val due = HomeWidgetPlugin.getData(context).getString("cadence_due", "0") ?: "0"
-        val title = if (due != "0") "節奏 · $due due today" else "節奏 Cadence"
+        // Header shows a "due today" count when there is one. Counted here from
+        // the task list (not a number the app saved) so it rolls over at
+        // midnight on the periodic update even if the app hasn't been opened.
+        val due = dueTodayCount(context)
+        val title = if (due > 0) "節奏 · $due due today" else "節奏 Cadence"
         views.setTextViewText(R.id.header_title, title)
 
         // Bind the list; a unique data URI makes the adapter refresh per widget.

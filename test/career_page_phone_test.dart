@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'career_fixtures.dart';
 import 'package:cadence/store.dart';
 import 'package:cadence/tracker/career_page.dart';
 
@@ -14,7 +15,7 @@ void main() {
     addTearDown(tester.view.reset);
     store.applications = [];
     store.trackEvents = [];
-    store.loadCareerStarter();
+    loadSample(store);
     await tester.pumpWidget(const MaterialApp(home: Scaffold(body: CareerPage())));
     await tester.pumpAndSettle();
     for (final tab in ['Applications 5', 'Events 7', 'Overview', 'Goals & metrics', 'Schedule']) {

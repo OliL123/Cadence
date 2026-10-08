@@ -1,6 +1,5 @@
 // Verifies the per-task sync merge: a stale device's blob (newer top-level
 // clock, older per-task clock) must not revert a task we just made a daily.
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cadence/store.dart';

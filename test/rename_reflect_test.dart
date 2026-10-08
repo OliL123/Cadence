@@ -1,7 +1,6 @@
 // Renaming a task must reflect everywhere it appears: the mahjong wall, the
 // due-soon list, and it must never merge two tasks that happen to share a name
 // (tasks are identified by id, not title).
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cadence/store.dart';

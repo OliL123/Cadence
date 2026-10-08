@@ -4,7 +4,6 @@
 //    when a daylight-saving change makes the local day 25 hours long;
 //  - a doneDate from a device in a timezone ahead reads as neither today nor
 //    yesterday, so the next tick started from zero.
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cadence/models.dart';

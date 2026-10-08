@@ -11,7 +11,6 @@ const _androidName = 'CadenceWidgetProvider';
 const _qualifiedAndroidName = 'com.oliver.cadence.CadenceWidgetProvider';
 const allDataKey = 'cadence_all'; // JSON: every task, active first then done
 const focusDataKey = 'cadence_focus'; // JSON: focus (starred) tasks, same order
-const dueDataKey = 'cadence_due'; // count of tasks due today (as a string)
 
 bool get _supported =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -25,8 +24,15 @@ Map<String, dynamic> _json(Task t) {
     'color': g.color, // ARGB int
     'done': t.done,
     'star': t.star,
+    // yyyy-MM-dd, so the widget can count "due today" itself (it redraws on
+    // its own every 30 min, so the count rolls over at midnight).
+    'due': _isoDay(CadenceStore.parseISO(t.dueISO)),
   };
 }
+
+String? _isoDay(DateTime? d) => d == null
+    ? null
+    : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
 /// Serialise both widget pages (All + Focus) and hand them to the widget.
 Future<void> pushWallToWidget() async {
@@ -41,17 +47,10 @@ Future<void> pushWallToWidget() async {
     // Focus page: only what's still to do, in wall order — a finished focus
     // task drops off rather than lingering struck-through.
     final focus = store.wallTasks();
-    final now = DateTime.now();
-    final dueToday = store.tasks.where((t) {
-      if (t.done || t.daily) return false;
-      final d = CadenceStore.parseISO(t.dueISO);
-      return d != null && d.year == now.year && d.month == now.month && d.day == now.day;
-    }).length;
     await HomeWidget.saveWidgetData<String>(
         allDataKey, jsonEncode(all.map(_json).toList()));
     await HomeWidget.saveWidgetData<String>(
         focusDataKey, jsonEncode(focus.map(_json).toList()));
-    await HomeWidget.saveWidgetData<String>(dueDataKey, '$dueToday');
     await HomeWidget.updateWidget(
       androidName: _androidName,
       qualifiedAndroidName: _qualifiedAndroidName,

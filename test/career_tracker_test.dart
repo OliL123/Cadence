@@ -1,8 +1,8 @@
 // The career tracker's logic: the "what should I do today?" agenda, stats,
 // CSV round-trips, and sync safety (incl. against blobs from older builds).
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'career_fixtures.dart';
 import 'package:cadence/store.dart';
 import 'package:cadence/tracker/tracker_csv.dart';
 import 'package:cadence/tracker/tracker_models.dart';
@@ -17,8 +17,8 @@ void main() {
   group('agenda', () {
     // Wed 7 Oct 2026, 13:00 — the day before the career fair sign-up opens.
     final now = DateTime(2026, 10, 7, 13);
-    final apps = starterApplications(id);
-    final events = starterEvents(id);
+    final apps = sampleApplications(id);
+    final events = sampleEvents(id);
 
     test('career fair sign-up opening within 48h is urgent', () {
       final a = CareerAgenda.build(apps, events, now: now);
@@ -41,7 +41,7 @@ void main() {
     });
 
     test('the compact list drops sign-ups once signed up', () {
-      final evs = starterEvents(id);
+      final evs = sampleEvents(id);
       evs.firstWhere((e) => e.name == 'Virtual Engineering Career Fair').status = 'signed-up';
       final a = CareerAgenda.build(apps, evs, now: now);
       expect(a.urgentCompact.where((u) => u.title == 'Virtual Engineering Career Fair'),
@@ -50,17 +50,17 @@ void main() {
 
     test('a deadline already handled is not urgent', () {
       final a = CareerAgenda.build(apps, events,
-          now: DateTime(2026, 11, 5, 9)); // the day before Riot closes
-      expect(a.urgent.where((u) => u.title == 'Riot application closes'), isEmpty);
+          now: DateTime(2026, 11, 5, 9)); // the day before Lantern closes
+      expect(a.urgent.where((u) => u.title == 'Lantern application closes'), isEmpty);
     });
 
     test('this week lists upcoming and running events, not TBD ones', () {
       final a = CareerAgenda.build(apps, events, now: now);
       final names = a.thisWeek.map((u) => u.title).toList();
       expect(names, containsAll(['Virtual Engineering Career Fair',
-          'MLH Global Hack Week: Hacktoberfest']));
-      expect(names, isNot(contains('Epic Games recruiter coaching session')));
-      expect(names, isNot(contains('Game Off 2026')), reason: 'that is in November');
+          'Online Hack Week']));
+      expect(names, isNot(contains('Recruiter coaching session')));
+      expect(names, isNot(contains('Autumn Game Jam')), reason: 'that is in November');
     });
 
     test('follow-ups due today or earlier', () {
@@ -83,7 +83,7 @@ void main() {
 
     test('counts applications sent this week (Mon–Sun)', () {
       final a = CareerAgenda.build(apps, events, now: now);
-      expect(a.appliedThisWeek, 1, reason: 'Riot was applied to on Tue 6 Oct');
+      expect(a.appliedThisWeek, 1, reason: 'Lantern was applied to on Tue 6 Oct');
     });
   });
 
@@ -127,12 +127,12 @@ void main() {
 
   test('import updates rows by id and adds the rest', () {
     final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
-    s.loadCareerStarter();
-    final riot = s.applications.firstWhere((a) => a.company == 'Riot Games');
+    loadSample(s);
+    final riot = s.applications.firstWhere((a) => a.company == 'Lantern Games');
     final edited = Application.fromJson(riot.toJson())..status = 'oa';
     final r = s.importApplications([edited, Application(id: 0, company: 'Valve')]);
     expect((r.added, r.updated), (1, 1));
-    expect(s.applications.firstWhere((a) => a.company == 'Riot Games').status, 'oa');
+    expect(s.applications.firstWhere((a) => a.company == 'Lantern Games').status, 'oa');
     expect(s.applications.length, 6);
   });
 
@@ -140,26 +140,26 @@ void main() {
     final now = DateTime(2026, 10, 7, 13);
 
     test('lists everything coming up, months out, soonest first', () {
-      final s = CareerSchedule.build(starterApplications(id), starterEvents(id), now: now);
+      final s = CareerSchedule.build(sampleApplications(id), sampleEvents(id), now: now);
       final names = s.upcoming.map((u) => '${u.title}|${u.detail}').toList();
       expect(names.first, 'Virtual Engineering Career Fair|sign-up opens');
-      expect(names, contains('HackRPI 2026|hackathon'));
-      expect(names, contains('SpartaHack 12|hackathon'), reason: 'February is still shown');
-      expect(names, contains('Riot application closes|deadline'));
+      expect(names, contains('City Hackathon|hackathon'));
+      expect(names, contains('Winter Hackathon|hackathon'), reason: 'February is still shown');
+      expect(names, contains('Lantern application closes|deadline'));
       expect(s.upcoming.map((u) => u.when).toList(),
           orderedEquals([...s.upcoming.map((u) => u.when)]..sort()));
-      expect(s.tbd.map((e) => e.name), contains('Epic Games recruiter coaching session'));
+      expect(s.tbd.map((e) => e.name), contains('Recruiter coaching session'));
       expect(s.next!.detail, 'sign-up opens');
     });
 
     test('running events are "now", past ones are gone', () {
-      final s = CareerSchedule.build([], starterEvents(id), now: DateTime(2026, 10, 12, 9));
-      expect(s.running.map((u) => u.title), contains('MLH Global Hack Week: Hacktoberfest'));
+      final s = CareerSchedule.build([], sampleEvents(id), now: DateTime(2026, 10, 12, 9));
+      expect(s.running.map((u) => u.title), contains('Online Hack Week'));
       expect(s.upcoming.map((u) => u.title), isNot(contains('Virtual Engineering Career Fair')));
     });
 
     test('one sign-up line per event, none once signed up', () {
-      final evs = starterEvents(id);
+      final evs = sampleEvents(id);
       final fair = evs.firstWhere((e) => e.name == 'Virtual Engineering Career Fair');
       List<String> lines() => CareerSchedule.build([], evs, now: now)
           .upcoming
@@ -222,13 +222,15 @@ void main() {
   group('origin', () {
     test('new imports are marked imported; updates keep their origin', () {
       final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
-      s.loadCareerStarter();
-      final riot = s.applications.firstWhere((a) => a.company == 'Riot Games');
+      final riot = Application(id: 0, company: 'Lantern Games');
+      s.saveApplication(riot); // typed in by hand
       expect(riot.from, 'you');
+      loadSample(s);
+      expect(s.applications.firstWhere((a) => a.company == 'Northwind').from, 'import');
       // A sheet exported before origins existed: no origin column.
-      final rows = parseCsv('id,company,status\n${riot.id},Riot Games,oa\n,Valve,to-apply\n');
+      final rows = parseCsv('id,company,status\n${riot.id},Lantern Games,oa\n,Valve,to-apply\n');
       s.importApplications(applicationsFromCsv(rows));
-      expect(s.applications.firstWhere((a) => a.company == 'Riot Games').from, 'you');
+      expect(s.applications.firstWhere((a) => a.company == 'Lantern Games').from, 'you');
       expect(s.applications.firstWhere((a) => a.company == 'Valve').from, 'import');
     });
 
@@ -252,7 +254,7 @@ void main() {
 
   test('signing out wipes this device, including its saved copy', () async {
     final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
-    s.loadCareerStarter();
+    loadSample(s);
     s.saveGoal(Goal(id: 0, title: 'Apply to 40', target: 40));
     s.score = 12;
     await s.save();
@@ -270,7 +272,7 @@ void main() {
   group('sync', () {
     test('a blob from an older build does not wipe career data or score', () {
       final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
-      s.loadCareerStarter();
+      loadSample(s);
       s.score = 9;
       // An older client syncs a newer copy that knows nothing of these fields.
       s.applyRemoteState({'tasks': <dynamic>[], 'updatedAt': DateTime.now().millisecondsSinceEpoch + 5000});
@@ -281,9 +283,9 @@ void main() {
 
     test('a newer local edit to an application survives a cloud pull', () {
       final s = CadenceStore()..applyState({'tasks': <dynamic>[], 'updatedAt': 1});
-      s.loadCareerStarter();
+      loadSample(s);
       final cloud = s.exportState(); // snapshot before the edit
-      final amazon = s.applications.firstWhere((a) => a.company == 'Amazon');
+      final amazon = s.applications.firstWhere((a) => a.company == 'Fabrikam');
       // Make the snapshot strictly older than the edit (a test can run both in
       // the same millisecond, which would tie the clocks).
       for (final a in (cloud['apps'] as List).cast<Map>()) {
@@ -291,7 +293,7 @@ void main() {
       }
       s.setAppStatus(amazon, 'applied');
       s.applyRemoteState({...cloud, 'updatedAt': amazon.uAt + 1});
-      expect(s.applications.firstWhere((a) => a.company == 'Amazon').status, 'applied');
+      expect(s.applications.firstWhere((a) => a.company == 'Fabrikam').status, 'applied');
     });
   });
 }
