@@ -33838,16 +33838,16 @@ for(;;)switch(s){case 0:s=1
 break
 case 1:return A.w(q,r)}})
 return A.x($async$aYo,r)},
-blS(){var s,r="cadence.apk",q=document,p=q.createElement("a")
-p.href=r
-p.setAttribute("download",r)
-s=p.style
+blS(){var s,r=document,q=r.createElement("a")
+q.href="https://github.com/OliL123/Cadence/releases/download/apk/cadence.apk"
+q.setAttribute("download","cadence.apk")
+s=q.style
 s.display="none"
-q=q.body
-if(q!=null)q.appendChild(p).toString
-p.click()
-q=p.parentNode
-if(q!=null)q.removeChild(p).toString},
+r=r.body
+if(r!=null)r.appendChild(q).toString
+q.click()
+r=q.parentNode
+if(r!=null)r.removeChild(q).toString},
 b6n(){return new A.aP(Date.now(),0,!1)},
 bln(){$.b8z()
 return B.OM},
