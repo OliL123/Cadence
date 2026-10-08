@@ -96,7 +96,7 @@ class SubtaskSectionState extends State<SubtaskSection> {
             ),
           ),
         GestureDetector(
-          onTap: () => store.toggleSub(s),
+          onTap: () => store.toggleSub(t, s),
           child: Container(
             width: 16,
             height: 16,

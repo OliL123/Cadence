@@ -152,16 +152,24 @@ class SyncService extends ChangeNotifier {
   /// Sign out and remove your data from this device. It stays in your
   /// account; signing in again (here or anywhere) brings it back. Leaving it
   /// would show your tasks and Career to the next person using this browser.
-  /// Pending edits are uploaded first so nothing is lost.
-  Future<void> signOut() async {
+  /// Pending edits are uploaded first so nothing is lost — and if that upload
+  /// fails (offline), the device is NOT wiped: returns false and stays signed
+  /// in, since the wipe would delete edits that exist nowhere else.
+  Future<bool> signOut() async {
     _pushTimer?.cancel();
-    if (isSignedIn) await _push();
+    if (isSignedIn && hasUnsyncedChanges && !await _push(force: true)) {
+      message = 'Couldn\'t upload your latest changes, so you\'re still signed '
+          'in. Try again when you\'re online.';
+      notifyListeners();
+      return false;
+    }
     _teardown();
     await _sb.auth.signOut();
     await store.wipeDevice();
     await GCalService.instance.forgetOnDevice();
     message = null;
     notifyListeners();
+    return true;
   }
 
   // ---------- sync ----------
@@ -254,11 +262,12 @@ class SyncService extends ChangeNotifier {
     _pushTimer = Timer(const Duration(milliseconds: 700), () => _push());
   }
 
-  Future<void> _push({bool force = false}) async {
-    if (!isSignedIn) return;
+  /// Returns false if the upload failed (offline / transient).
+  Future<bool> _push({bool force = false}) async {
+    if (!isSignedIn) return false;
     final uid = _sb.auth.currentUser!.id;
     final json = jsonEncode(store.exportState());
-    if (!force && json == _lastSyncedJson) return; // nothing new
+    if (!force && json == _lastSyncedJson) return true; // nothing new
     try {
       // Read, merge, then write: the upsert replaces the whole row, so the
       // cloud's copy is folded in first and nothing it holds is lost — even
@@ -276,13 +285,16 @@ class SyncService extends ChangeNotifier {
         await _upload();
       }
       notifyListeners();
+      return true;
     } catch (_) {
       // offline / transient — will retry on the next change
+      return false;
     }
   }
 
-  /// Nominate this device as the main one: it wins clock ties, and every device
-  /// shows its name. Also publishes this device's state so it becomes canonical.
+  /// Nominate this device as the main one. It's a label only — every device
+  /// shows its name — and gives no priority: sync merges item by item, newest
+  /// edit wins, whichever device made it. Also publishes this device's state.
   Future<void> setMainDevice() async {
     if (!isSignedIn) return;
     mainDeviceId = Device.id;
