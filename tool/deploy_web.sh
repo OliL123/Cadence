@@ -18,11 +18,10 @@ sed -i "s#flutter_bootstrap.js\"#flutter_bootstrap.js?v=$BUILD\"#" build/web/ind
 sed -i "s#\"main.dart.js\"#\"main.dart.js?v=$BUILD\"#g" build/web/flutter_bootstrap.js
 printf '%s' "$BUILD" > build/web/build.txt
 
-# Publish to docs/, preserving the bundled APK.
-[ -f docs/cadence.apk ] && cp docs/cadence.apk /tmp/cadence.apk.keep
+# Publish to docs/. (The Android APK is not here: it's a GitHub release —
+# see tool/release_apk.sh — so it doesn't bloat the repo.)
 rm -rf docs && mkdir -p docs
 cp -r build/web/* docs/
 touch docs/.nojekyll
-[ -f /tmp/cadence.apk.keep ] && cp /tmp/cadence.apk.keep docs/cadence.apk
 
 echo "docs/ ready (build $BUILD)"
