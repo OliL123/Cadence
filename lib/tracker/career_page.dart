@@ -57,9 +57,26 @@ class _CareerPageState extends State<CareerPage> {
   /// For the tab widgets, which hold no state of their own.
   void _update(VoidCallback change) => setState(change);
 
-  void _snack(String msg) => ScaffoldMessenger.of(context)
+  void _snack(String msg, {VoidCallback? undo}) => ScaffoldMessenger.of(context)
     ..clearSnackBars()
-    ..showSnackBar(SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating));
+    ..showSnackBar(SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      duration: Duration(seconds: undo == null ? 4 : 8),
+      action: undo == null ? null : SnackBarAction(label: 'UNDO', onPressed: undo),
+    ));
+
+  /// Companies whose roles are shown open in the Applications board, keyed
+  /// "status|company". Everything else with several roles stays one card.
+  final Set<String> _openCompanies = {};
+
+  /// One-tap "I applied": moves a to-apply card to Applied, with UNDO.
+  void _markApplied(Application a) {
+    final was = (a.status, a.dateApplied);
+    store.setAppStatus(a, 'applied');
+    _snack('${a.company} marked applied',
+        undo: () => store.revertAppStatus(a, was.$1, was.$2));
+  }
 
   Future<void> _export(bool apps) async {
     final name = apps ? 'applications.csv' : 'events.csv';
@@ -75,22 +92,86 @@ class _CareerPageState extends State<CareerPage> {
       return;
     }
     final msgs = <String>[];
+    final addedApps = <int>[], addedEvents = <int>[];
     for (final t in texts) {
       final rows = parseCsv(t);
       switch (csvKind(rows)) {
         case CsvKind.applications:
           final r = store.importApplications(applicationsFromCsv(rows));
+          addedApps.addAll(r.ids);
           msgs.add('${r.added} applications added, ${r.updated} updated'
               '${r.skipped > 0 ? ', ${r.skipped} already here' : ''}');
         case CsvKind.events:
           final r = store.importEvents(eventsFromCsv(rows));
+          addedEvents.addAll(r.ids);
           msgs.add('${r.added} events added, ${r.updated} updated'
               '${r.skipped > 0 ? ', ${r.skipped} already here' : ''}');
         case CsvKind.unknown:
           msgs.add('one file wasn\'t an applications or events CSV');
       }
     }
-    _snack(msgs.join(' · '));
+    // UNDO takes back exactly the rows this import added.
+    _snack(msgs.join(' · '),
+        undo: addedApps.isEmpty && addedEvents.isEmpty
+            ? null
+            : () => store.removeCareerItems(addedApps, addedEvents));
+  }
+
+  /// Take back an earlier import: pick it from a list (newest first), remove
+  /// the rows it added that haven't been edited since — with UNDO.
+  Future<void> _undoImport() async {
+    final batches = store.importBatches();
+    if (batches.isEmpty) {
+      _snack('No imports left to undo');
+      return;
+    }
+    String when(int ms) {
+      final d = DateTime.fromMillisecondsSinceEpoch(ms);
+      final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+      return '${fmtWhen(isoDate(d))}, $h:${d.minute.toString().padLeft(2, '0')}'
+          '${d.hour < 12 ? 'am' : 'pm'}';
+    }
+    String what(({int at, int apps, int events}) b) => [
+          if (b.apps > 0) '${b.apps} application${b.apps == 1 ? '' : 's'}',
+          if (b.events > 0) '${b.events} event${b.events == 1 ? '' : 's'}',
+        ].join(' + ');
+    final at = await showDialog<int>(
+      context: context,
+      builder: (d) => AlertDialog(
+        backgroundColor: C.paper2,
+        title: const Text('Undo an import'),
+        content: SizedBox(
+          width: 380,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Removes the rows an import added that you haven\'t edited '
+                'since. Anything you moved or changed stays.',
+                style: TextStyle(fontSize: 13, color: C.ink2)),
+            const SizedBox(height: 10),
+            Flexible(
+              child: ListView(shrinkWrap: true, children: [
+                for (final b in batches.take(12))
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.upload_file, color: C.ink3),
+                    title: Text(what(b), style: const TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text('added ${when(b.at)}'),
+                    trailing: const Icon(Icons.undo, color: C.red),
+                    onTap: () => Navigator.pop(d, b.at),
+                  ),
+              ]),
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
+        ],
+      ),
+    );
+    if (at == null) return;
+    final gone = store.removeImportBatch(at);
+    _snack('Removed ${gone.apps.length + gone.events.length} imported items',
+        undo: () => store.restoreCareer(gone.apps, gone.events));
   }
 
   /// Collapse copies into one, after saying how many there are.
@@ -246,6 +327,8 @@ class _CareerPageState extends State<CareerPage> {
               _import();
             case 'dup':
               _removeDuplicates();
+            case 'undoimp':
+              _undoImport();
           }
         },
         itemBuilder: (_) => [
@@ -260,6 +343,7 @@ class _CareerPageState extends State<CareerPage> {
           PopupMenuItem(
               value: 'imp',
               child: Text(csvio.csvIoUsesFiles ? 'Import CSV…' : 'Import CSV from clipboard')),
+          const PopupMenuItem(value: 'undoimp', child: Text('Undo an import…')),
           const PopupMenuItem(value: 'dup', child: Text('Remove duplicates…')),
         ],
       ),
@@ -936,13 +1020,103 @@ class _AppsTab extends StatelessWidget {
               Text('${apps.length}', style: mono(size: 11, color: C.creamTxt)),
             ]),
           ),
-          Expanded(
-            child: apps.isEmpty
-                ? _none('—')
-                : ListView(children: [for (final a in apps) _appCard(context, a)]),
-          ),
+          Expanded(child: apps.isEmpty ? _none('—') : _grouped(context, status, apps)),
         ]),
       );
+
+  /// One card per company: a company with several roles in this column is a
+  /// single card that opens to list them, so a big imported list reads as
+  /// "who" first. Built lazily, since a column can hold hundreds.
+  Widget _grouped(BuildContext context, String status, List<Application> apps) {
+    final byCompany = <String, List<Application>>{};
+    for (final a in apps) {
+      byCompany.putIfAbsent(a.company.trim().toLowerCase(), () => []).add(a);
+    }
+    final groups = byCompany.values.toList();
+    return ListView.builder(
+      itemCount: groups.length,
+      itemBuilder: (context, i) => groups[i].length == 1
+          ? _appCard(context, groups[i].first)
+          : _companyCard(context, status, groups[i]),
+    );
+  }
+
+  Widget _tick(Application a, {double size = 20}) => a.status != 'to-apply'
+      ? const SizedBox.shrink()
+      : IconButton(
+          tooltip: 'Mark applied',
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: BoxConstraints.tightFor(width: size + 10, height: size + 10),
+          icon: Icon(Icons.check_circle_outline, size: size, color: C.green),
+          onPressed: () => page._markApplied(a),
+        );
+
+  Widget _companyCard(BuildContext context, String status, List<Application> roles) {
+    final key = '$status|${roles.first.company.trim().toLowerCase()}';
+    final open = page._openCompanies.contains(key);
+    void toggle() => page._update(() {
+          if (!page._openCompanies.remove(key)) page._openCompanies.add(key);
+        });
+    return _card(
+      onTap: toggle,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Expanded(
+            child: Text(roles.first.company,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: C.ink)),
+          ),
+          _pill('${roles.length} ROLES', C.navy),
+          Icon(open ? Icons.expand_less : Icons.expand_more, size: 20, color: C.ink3),
+        ]),
+        if (!open)
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              roles.map((r) => r.role.isEmpty ? 'untitled role' : r.role).take(3).join(' · ') +
+                  (roles.length > 3 ? ' …' : ''),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: C.ink2),
+            ),
+          )
+        else ...[
+          const SizedBox(height: 6),
+          for (final r in roles)
+            InkWell(
+              onTap: () => showApplicationForm(context, existing: r),
+              borderRadius: BorderRadius.circular(5),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(r.role.isEmpty ? 'Untitled role' : r.role,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12.5, color: C.ink)),
+                      if (r.term != null || r.deadline != null || r.location != null)
+                        Text(
+                            [
+                              if (r.term != null) r.term!,
+                              if (r.location != null) r.location!,
+                              if (r.deadline != null) 'closes ${fmtWhen(r.deadline)}',
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: mono(size: 10, color: C.ink3)),
+                    ]),
+                  ),
+                  _tick(r, size: 18),
+                ]),
+              ),
+            ),
+        ],
+      ]),
+    );
+  }
 
   Widget _appCard(BuildContext context, Application a) => _card(
         onTap: () => showApplicationForm(context, existing: a),
@@ -955,6 +1129,7 @@ class _AppsTab extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: C.ink)),
             ),
+            _tick(a),
             PopupMenuButton<String>(
               tooltip: 'Move to…',
               padding: EdgeInsets.zero,

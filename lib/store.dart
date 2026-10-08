@@ -1083,8 +1083,19 @@ class CadenceStore extends ChangeNotifier {
 
   /// Move along the pipeline. Marking it applied stamps today's date if none.
   void setAppStatus(Application a, String status) {
+    // The current copy: a sync may have swapped the one the card was built from.
+    a = applications.firstWhere((x) => x.id == a.id, orElse: () => a);
     a.status = status;
     if (status == 'applied') a.dateApplied ??= isoDate(DateTime.now());
+    a.uAt = _now;
+    _changed();
+  }
+
+  /// Undo a status change: put back the status and applied date it had.
+  void revertAppStatus(Application a, String status, String? dateApplied) {
+    a = applications.firstWhere((x) => x.id == a.id, orElse: () => a);
+    a.status = status;
+    a.dateApplied = dateApplied;
     a.uAt = _now;
     _changed();
   }
@@ -1133,8 +1144,9 @@ class CadenceStore extends ChangeNotifier {
   /// unless one like it (same company, role and term) is already here or
   /// earlier in the file, in which case it's skipped, so importing a sheet
   /// twice or one that overlaps what's in the app never makes copies.
-  ({int added, int updated, int skipped}) importApplications(List<Application> rows) {
+  ({int added, int updated, int skipped, List<int> ids}) importApplications(List<Application> rows) {
     var added = 0, updated = 0, skipped = 0;
+    final ids = <int>[];
     final t = _now;
     final seen = {for (final a in applications) appKey(a)};
     for (final r in rows) {
@@ -1152,17 +1164,19 @@ class CadenceStore extends ChangeNotifier {
           ..id = _newId()
           ..origin ??= 'import'
           ..uAt = t);
+        ids.add(r.id);
         added++;
       }
     }
     if (added + updated > 0) _changed();
-    return (added: added, updated: updated, skipped: skipped);
+    return (added: added, updated: updated, skipped: skipped, ids: ids);
   }
 
   /// Like [importApplications]; an event is a copy when its name and start
   /// date match.
-  ({int added, int updated, int skipped}) importEvents(List<TrackEvent> rows) {
+  ({int added, int updated, int skipped, List<int> ids}) importEvents(List<TrackEvent> rows) {
     var added = 0, updated = 0, skipped = 0;
+    final ids = <int>[];
     final t = _now;
     final seen = {for (final e in trackEvents) eventKey(e)};
     for (final r in rows) {
@@ -1179,11 +1193,12 @@ class CadenceStore extends ChangeNotifier {
           ..id = _newId()
           ..origin ??= 'import'
           ..uAt = t);
+        ids.add(r.id);
         added++;
       }
     }
     if (added + updated > 0) _changed();
-    return (added: added, updated: updated, skipped: skipped);
+    return (added: added, updated: updated, skipped: skipped, ids: ids);
   }
 
   // ---------- duplicates ----------
@@ -1218,6 +1233,70 @@ class CadenceStore extends ChangeNotifier {
     trackEvents = e.$1;
     if (a.$2 + e.$2 > 0) _changed();
     return (apps: a.$2, events: e.$2);
+  }
+
+  // ---------- undoing an import ----------
+  /// Imports still undoable, newest first. Every row one import added got
+  /// the same edit clock, and any later edit moves an item off it, so items
+  /// sharing a clock are that import's rows nobody has touched since.
+  /// (Remove duplicates also stamps its merged copies together; those show
+  /// up here too, which is harmless — removing is itself undoable.)
+  List<({int at, int apps, int events})> importBatches() {
+    final apps = <int, int>{}, evs = <int, int>{};
+    for (final a in applications) {
+      if (a.uAt > 0) apps[a.uAt] = (apps[a.uAt] ?? 0) + 1;
+    }
+    for (final e in trackEvents) {
+      if (e.uAt > 0) evs[e.uAt] = (evs[e.uAt] ?? 0) + 1;
+    }
+    final ats = {...apps.keys, ...evs.keys}
+        .where((t) => (apps[t] ?? 0) + (evs[t] ?? 0) >= 2)
+        .toList()
+      ..sort((a, b) => b.compareTo(a));
+    return [for (final t in ats) (at: t, apps: apps[t] ?? 0, events: evs[t] ?? 0)];
+  }
+
+  /// Remove one import's untouched rows. Returns them, for [restoreCareer].
+  ({List<Application> apps, List<TrackEvent> events}) removeImportBatch(int at) =>
+      removeCareerItems(
+        applications.where((a) => a.uAt == at).map((a) => a.id),
+        trackEvents.where((e) => e.uAt == at).map((e) => e.id),
+      );
+
+  /// Remove these applications and events (with deletion markers, so a sync
+  /// can't bring them back). Returns what was removed, for [restoreCareer].
+  ({List<Application> apps, List<TrackEvent> events}) removeCareerItems(
+      Iterable<int> appIds, Iterable<int> eventIds) {
+    final aIds = appIds.toSet(), eIds = eventIds.toSet();
+    final apps = applications.where((a) => aIds.contains(a.id)).toList();
+    final evs = trackEvents.where((e) => eIds.contains(e.id)).toList();
+    applications.removeWhere((a) => aIds.contains(a.id));
+    trackEvents.removeWhere((e) => eIds.contains(e.id));
+    for (final a in apps) {
+      _markDeleted('a', a.id);
+    }
+    for (final e in evs) {
+      _markDeleted('e', e.id);
+    }
+    if (apps.isNotEmpty || evs.isNotEmpty) _changed();
+    return (apps: apps, events: evs);
+  }
+
+  /// Put back what [removeCareerItems] took (the UNDO). A fresh edit clock
+  /// outranks the deletion markers on devices that already got them.
+  void restoreCareer(List<Application> apps, List<TrackEvent> events) {
+    final t = _now;
+    for (final a in apps) {
+      if (applications.any((x) => x.id == a.id)) continue;
+      deleted.remove('a:${a.id}');
+      applications.add(a..uAt = t);
+    }
+    for (final e in events) {
+      if (trackEvents.any((x) => x.id == e.id)) continue;
+      deleted.remove('e:${e.id}');
+      trackEvents.add(e..uAt = t);
+    }
+    _changed();
   }
 
   (List<X>, int) _collapse<X>(
