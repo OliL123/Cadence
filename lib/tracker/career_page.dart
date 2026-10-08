@@ -1,5 +1,6 @@
 // The Career section: an overview (the whole schedule beside goals and
 // metrics), the applications pipeline, and events — built from trackers-plan.md.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../palette.dart';

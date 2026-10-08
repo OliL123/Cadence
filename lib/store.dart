@@ -1288,7 +1288,11 @@ class CadenceStore extends ChangeNotifier {
       term: findPrefs.term,
       location: p.locations.take(3).join('; '),
       link: p.url,
-      source: p.source == 'simplify' ? 'simplify' : 'company-site',
+      source: switch (p.source) {
+        'simplify' => 'simplify',
+        'speedyapply' || 'vansh' => 'other',
+        _ => 'company-site',
+      },
       deadline: p.deadline,
       origin: 'cadence',
       postingId: p.key,

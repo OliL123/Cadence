@@ -11,6 +11,8 @@
 // This file is the pure part — shapes, parsing, classification, ranking —
 // so it's testable without a network. Fetching lives in job_fetch.dart.
 
+import 'dart:convert';
+
 import 'tracker_models.dart';
 
 /// One job posting from any source.
@@ -213,7 +215,12 @@ SponsorCheck? simplifySponsor(String? field) => switch (field) {
   if (key.first == 'gh' && key.length == 3) {
     return (url: 'https://boards-api.greenhouse.io/v1/boards/${key[1]}/jobs/${key[2]}', ats: 'greenhouse', id: null);
   }
-  if (p.source != 'simplify') return null;
+  if (key.first == 'sr' && key.length == 3) {
+    return (url: 'https://api.smartrecruiters.com/v1/companies/${key[1]}/postings/${key[2]}', ats: 'smartrecruiters', id: null);
+  }
+  // Postings from the lists link to all sorts of job sites; these are the
+  // ones Find can read.
+  if (!findListSources.contains(p.source)) return null;
   final u = p.url;
   final gh = RegExp(r'greenhouse\.io/([\w-]+)/jobs/(\d+)').firstMatch(u);
   if (gh != null) {
@@ -227,6 +234,10 @@ SponsorCheck? simplifySponsor(String? field) => switch (field) {
   if (ab != null) {
     return (url: 'https://api.ashbyhq.com/posting-api/job-board/${ab[1]}', ats: 'ashby', id: ab[2]);
   }
+  final sr = RegExp(r'(?:jobs|careers)\.smartrecruiters\.com/([\w-]+)/(\d{6,})').firstMatch(u);
+  if (sr != null) {
+    return (url: 'https://api.smartrecruiters.com/v1/companies/${sr[1]}/postings/${sr[2]}', ats: 'smartrecruiters', id: null);
+  }
   return null;
 }
 
@@ -237,6 +248,9 @@ String? descriptionFrom(String ats, dynamic json, {String? id}) {
       return json is Map ? json['content'] as String? : null;
     case 'lever':
       return json is Map ? _leverText(json) : null;
+    case 'smartrecruiters':
+      final sections = ((json is Map ? json['jobAd'] : null) as Map?)?['sections'] as Map?;
+      return sections?.values.map((v) => v is Map ? '${v['text'] ?? ''}' : '').join(' ');
     case 'ashby':
       final jobs = json is Map ? json['jobs'] as List? : null;
       for (final j in jobs ?? const []) {
@@ -451,7 +465,7 @@ String trackFor(Posting p) {
 
 /// A company followed through its job board.
 class FollowedBoard {
-  final String ats; // 'greenhouse' | 'lever' | 'ashby'
+  final String ats; // 'greenhouse' | 'lever' | 'ashby' | 'smartrecruiters' | 'workable'
   final String slug; // the board's id in its URL, e.g. "riotgames"
   final String name;
   final bool game; // a game studio: all its roles count as game dev
@@ -464,27 +478,62 @@ class FollowedBoard {
   factory FollowedBoard.fromJson(Map<String, dynamic> j) =>
       FollowedBoard(j['a'] as String, j['s'] as String, j['n'] as String, game: j['g'] == true);
 
-  /// The board's public jobs feed (all three allow cross-origin reads).
+  /// The board's public jobs feed (all allow cross-origin reads).
+  /// SmartRecruiters pages 100 at a time: [FindService] adds `&offset=`.
   String get feedUrl => switch (ats) {
         'greenhouse' => 'https://boards-api.greenhouse.io/v1/boards/$slug/jobs',
         'lever' => 'https://api.lever.co/v0/postings/$slug?mode=json',
+        'smartrecruiters' => 'https://api.smartrecruiters.com/v1/companies/$slug/postings?limit=100',
+        'workable' => 'https://apply.workable.com/api/v1/widget/accounts/$slug?details=true',
         _ => 'https://api.ashbyhq.com/posting-api/job-board/$slug',
       };
+
+  /// The prefix of this board's posting keys.
+  String get keyPrefix => '${_keyAts[ats] ?? ats}:$slug:';
 
   /// A careers link → its board, for the boards Find can read; null for
   /// anything else (Workday, company sites…).
   static FollowedBoard? fromLink(String link, {String? name}) {
     final m = RegExp(
             r'(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board\?for=)?([\w-]+)|'
-            r'jobs(?:\.eu)?\.lever\.co/([\w-]+)|jobs\.ashbyhq\.com/([\w%.-]+)',
+            r'jobs(?:\.eu)?\.lever\.co/([\w-]+)|jobs\.ashbyhq\.com/([\w%.-]+)|'
+            r'(?:jobs|careers)\.smartrecruiters\.com/([\w-]+)|'
+            r'apply\.workable\.com/(?!j/|api/)([\w-]+)',
             caseSensitive: false)
         .firstMatch(link);
     if (m == null) return null;
-    final ats = m[1] != null ? 'greenhouse' : m[2] != null ? 'lever' : 'ashby';
-    final slug = (m[1] ?? m[2] ?? m[3])!;
+    final ats = m[1] != null
+        ? 'greenhouse'
+        : m[2] != null
+            ? 'lever'
+            : m[3] != null
+                ? 'ashby'
+                : m[4] != null
+                    ? 'smartrecruiters'
+                    : 'workable';
+    final slug = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5])!;
     return FollowedBoard(ats, slug, name ?? slug);
   }
 }
+
+/// Community-kept internship lists on GitHub, in the order duplicates are
+/// resolved (a role on several lists is kept from the first).
+const findListSources = ['simplify', 'speedyapply', 'vansh'];
+
+/// How each source is named on a card.
+const findSourceLabel = {
+  'simplify': 'SimplifyJobs',
+  'speedyapply': 'SpeedyApply',
+  'vansh': 'vanshb03 list',
+  'greenhouse': 'Company board',
+  'lever': 'Company board',
+  'ashby': 'Company board',
+  'smartrecruiters': 'Company board',
+  'workable': 'Company board',
+};
+
+/// Short names used in posting keys ("gh:riotgames:123").
+const _keyAts = {'greenhouse': 'gh', 'smartrecruiters': 'sr', 'workable': 'wk'};
 
 /// Boards checked to exist and be readable (Oct 2026): game studios first,
 /// then tech with Asia offices. Offered as one-tap follows.
@@ -504,6 +553,12 @@ const suggestedBoards = [
   FollowedBoard('greenhouse', 'nintendo', 'Nintendo of America', game: true),
   FollowedBoard('lever', 'kabam', 'Kabam', game: true),
   FollowedBoard('lever', 'jamcity', 'Jam City', game: true),
+  FollowedBoard('smartrecruiters', 'Ubisoft2', 'Ubisoft', game: true),
+  FollowedBoard('smartrecruiters', 'Gameloft', 'Gameloft', game: true),
+  FollowedBoard('smartrecruiters', 'CDPROJEKTRED', 'CD PROJEKT RED', game: true),
+  FollowedBoard('smartrecruiters', 'KeywordsStudios', 'Keywords Studios', game: true),
+  FollowedBoard('workable', 'rovio', 'Rovio', game: true),
+  FollowedBoard('workable', 'ustwo-games', 'ustwo games', game: true),
   FollowedBoard('greenhouse', 'discord', 'Discord'),
   FollowedBoard('greenhouse', 'twitch', 'Twitch'),
   FollowedBoard('greenhouse', 'agoda', 'Agoda'),
@@ -525,6 +580,7 @@ class FindPrefs {
   bool useSimplify;
   bool hideAdvancedDegree; // PhD/MBA-only roles
   bool hideNoSponsor; // postings that say no sponsorship / citizens only / clearance
+  List<String> lists; // extra GitHub lists to read: 'speedyapply', 'vansh'
   List<FollowedBoard> boards;
 
   FindPrefs({
@@ -535,9 +591,11 @@ class FindPrefs {
     this.useSimplify = true,
     this.hideAdvancedDegree = true,
     this.hideNoSponsor = false,
+    List<String>? lists,
     List<FollowedBoard>? boards,
   })  : countries = countries ?? ['US', 'HK', 'MY', 'SG', 'CN', 'AU'],
         interests = interests ?? ['game', 'swe', 'ml'],
+        lists = lists ?? ['speedyapply', 'vansh'],
         boards = boards ?? suggestedBoards.where((b) => b.game).toList();
 
   Map<String, dynamic> toJson() => {
@@ -548,6 +606,7 @@ class FindPrefs {
         'simplify': useSimplify,
         'noAdv': hideAdvancedDegree,
         'noSp': hideNoSponsor,
+        'lists': lists,
         'boards': boards.map((b) => b.toJson()).toList(),
       };
 
@@ -559,6 +618,7 @@ class FindPrefs {
         useSimplify: j['simplify'] as bool? ?? true,
         hideAdvancedDegree: j['noAdv'] as bool? ?? true,
         hideNoSponsor: j['noSp'] as bool? ?? false,
+        lists: (j['lists'] as List?)?.cast<String>(),
         boards: (j['boards'] as List?)
             ?.map((b) => FollowedBoard.fromJson(Map<String, dynamic>.from(b as Map)))
             .toList(),
@@ -572,19 +632,26 @@ DateTime? _epochS(dynamic v) =>
 
 /// SimplifyJobs' listings.json → open, visible postings for [term], plus the
 /// keys of every listing it marks closed (to flag ones you already added).
+/// The vanshb03 list uses the same format ([source] 'vansh'), with a bare
+/// "season" in place of "terms" — its repo is for one year, so "Summer"
+/// there means [term]'s summer.
 ({List<Posting> open, Set<String> closed}) parseSimplify(List<dynamic> raw,
-    {String term = 'Summer 2027', bool hideAdvancedDegree = true}) {
+    {String term = 'Summer 2027', bool hideAdvancedDegree = true, String source = 'simplify'}) {
   final open = <Posting>[];
   final closed = <String>{};
   for (final r in raw) {
     if (r is! Map) continue;
-    final key = 'simplify:${r['id']}';
-    if (r['active'] != true || r['is_visible'] != true) {
+    final key = '$source:${r['id']}';
+    if (r['active'] != true || r['is_visible'] == false) {
       closed.add(key);
       continue;
     }
-    final terms = (r['terms'] as List?)?.map((e) => '$e').toList() ?? const [];
-    if (!terms.contains(term)) continue;
+    final terms = (r['terms'] as List?)?.map((e) => '$e').toList();
+    if (terms != null) {
+      if (!terms.contains(term)) continue;
+    } else if (!term.toLowerCase().startsWith('${r['season'] ?? '?'}'.toLowerCase())) {
+      continue;
+    }
     final degrees = (r['degrees'] as List?)?.map((e) => '$e').toList() ?? const [];
     if (hideAdvancedDegree &&
         degrees.isNotEmpty &&
@@ -593,7 +660,7 @@ DateTime? _epochS(dynamic v) =>
     }
     open.add(Posting(
       key: key,
-      source: 'simplify',
+      source: source,
       company: '${r['company_name'] ?? ''}'.trim(),
       title: '${r['title'] ?? ''}'.trim(),
       locations: (r['locations'] as List?)?.map((e) => '$e').toList() ?? const [],
@@ -606,6 +673,62 @@ DateTime? _epochS(dynamic v) =>
     ));
   }
   return (open: open, closed: closed);
+}
+
+/// SpeedyApply's README tables (Markdown, one per section: FAANG+, Quant,
+/// Other) → postings. Columns are read from each table's header row, since
+/// the US tables have a Salary column and the international ones don't.
+/// "Age" ("6d") gives the posting date relative to [now].
+List<Posting> parseSpeedyApply(String markdown, {String term = 'Summer 2027', DateTime? now}) {
+  final n = now ?? DateTime.now();
+  String plain(String cell) => descriptionText(cell);
+  final out = <Posting>[];
+  List<String>? cols;
+  var category = 'Software';
+  for (final line in const LineSplitter().convert(markdown)) {
+    final l = line.trim();
+    if (l.startsWith('#')) {
+      category = l.toLowerCase().contains('quant') ? 'Quant' : 'Software';
+      cols = null;
+      continue;
+    }
+    if (!l.startsWith('|')) continue;
+    final cells = l.substring(1, l.endsWith('|') ? l.length - 1 : l.length).split('|').map((c) => c.trim()).toList();
+    if (cells.first.toLowerCase() == 'company') {
+      cols = cells.map((c) => c.toLowerCase()).toList();
+      continue;
+    }
+    if (cols == null || cells.first.startsWith('-') || cells.length < cols.length) continue;
+    String cell(String name) {
+      final i = cols!.indexOf(name);
+      return i < 0 ? '' : cells[i];
+    }
+
+    final url = RegExp(r'href="([^"]+)"').firstMatch(cell('posting'))?[1];
+    if (url == null) continue; // closed: no apply link
+    final title = plain(cell('position'));
+    if (!_fitsTerm(title, term)) continue;
+    final locs = cell('location')
+        .split(RegExp(r'<\s*/?\s*br\s*/?>|;', caseSensitive: false))
+        .map((x) => plain(x).replaceAll(RegExp(r'\s*\+\d+$'), '').trim())
+        .where((x) => x.isNotEmpty)
+        .toList();
+    final age = RegExp(r'(\d+)\s*(d|w|mo)').firstMatch(cell('age'));
+    final days = age == null
+        ? null
+        : int.parse(age[1]!) * switch (age[2]) { 'w' => 7, 'mo' => 30, _ => 1 };
+    out.add(Posting(
+      key: 'speedyapply:$url',
+      source: 'speedyapply',
+      company: plain(cell('company')),
+      title: title,
+      locations: locs,
+      url: url,
+      posted: days == null ? null : DateTime(n.year, n.month, n.day).subtract(Duration(days: days)),
+      category: category,
+    ));
+  }
+  return out;
 }
 
 final _studentRole = RegExp(
@@ -631,7 +754,7 @@ List<Posting> parseBoard(FollowedBoard b, dynamic raw, {String term = 'Summer 20
     if (!student || !_fitsTerm(title, term)) return;
     final c = countries ?? countriesOf(locs);
     out.add(Posting(
-      key: '${b.ats == 'greenhouse' ? 'gh' : b.ats}:${b.slug}:$id',
+      key: '${b.keyPrefix}$id',
       source: b.ats,
       company: b.name,
       title: title.trim(),
@@ -698,6 +821,51 @@ List<Posting> parseBoard(FollowedBoard b, dynamic raw, {String term = 'Summer 20
             ..remove(locs.isEmpty && addr == null ? '' : 'OTHER'),
           commitment: j['employmentType'] as String?,
           description: (j['descriptionPlain'] ?? j['descriptionHtml']) as String?,
+        );
+      }
+    case 'smartrecruiters':
+      // [FindService] joins the pages into one {'content': [...]}.
+      for (final j in ((raw as Map)['content'] as List? ?? const [])) {
+        if (j is! Map) continue;
+        final loc = (j['location'] as Map?) ?? const {};
+        final locs = <String>[
+          // "Da Nang, , Vietnam" when the region is blank: drop empty parts.
+          if (loc['fullLocation'] != null)
+            '${loc['fullLocation']}'.split(',').map((x) => x.trim()).where((x) => x.isNotEmpty).join(', ')
+          else if (loc['city'] != null)
+            '${loc['city']}',
+          if (loc['remote'] == true) 'Remote',
+        ];
+        final iso = _isoToFind['${loc['country'] ?? ''}'.toUpperCase()];
+        add(
+          '${j['id']}',
+          '${j['name']}',
+          locs,
+          'https://jobs.smartrecruiters.com/${b.slug}/${j['id']}',
+          DateTime.tryParse('${j['releasedDate'] ?? ''}'),
+          countries: {?iso, ...countriesOf(locs)}..remove(iso == null ? '' : 'OTHER'),
+          // "Internship" shows up as the type or the experience level.
+          commitment: '${(j['typeOfEmployment'] as Map?)?['label'] ?? ''} '
+              '${(j['experienceLevel'] as Map?)?['id'] ?? ''}',
+        );
+      }
+    case 'workable':
+      for (final j in ((raw as Map)['jobs'] as List? ?? const [])) {
+        if (j is! Map) continue;
+        final locs = <String>[
+          for (final l in (j['locations'] as List? ?? const []))
+            if (l is Map && l['hidden'] != true)
+              [l['city'], l['region'], l['country']].whereType<String>().where((x) => x.isNotEmpty).join(', '),
+          if (j['telecommuting'] == true) 'Remote',
+        ].where((x) => x.isNotEmpty).toList();
+        add(
+          '${j['shortcode']}',
+          '${j['title']}',
+          locs,
+          '${j['url'] ?? j['shortlink'] ?? ''}',
+          DateTime.tryParse('${j['published_on'] ?? j['created_at'] ?? ''}'),
+          commitment: j['employment_type'] as String?,
+          description: j['description'] as String?,
         );
       }
   }

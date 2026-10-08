@@ -17,6 +17,16 @@ import 'job_sources.dart';
 
 const simplifyUrl =
     'https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json';
+const vanshUrl =
+    'https://raw.githubusercontent.com/vanshb03/Summer2027-Internships/dev/.github/scripts/listings.json';
+// SpeedyApply: US internships (README) and international ones.
+const speedyApplyUrls = [
+  'https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/README.md',
+  'https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/INTERN_INTL.md',
+];
+
+/// Each list's name in error messages, and its posting-key prefix.
+const _listName = {'simplify': 'SimplifyJobs', 'speedyapply': 'SpeedyApply', 'vansh': 'vanshb03 list'};
 
 class FindService extends ChangeNotifier {
   FindService._();
@@ -39,6 +49,24 @@ class FindService extends ChangeNotifier {
 
   bool _loaded = false;
 
+  /// Which sources the cached postings came from. When it no longer matches
+  /// the settings (a new source in an update, or one switched on elsewhere),
+  /// opening Find fetches again instead of waiting out the cache's age.
+  String _sourcesSig = '';
+  /// Treat the postings held now as just fetched from the current sources
+  /// (tests set [postings] by hand and must not trigger a network refresh).
+  @visibleForTesting
+  void markFresh() {
+    fetchedAt = DateTime.now();
+    _sourcesSig = _sigOf(store.findPrefs);
+  }
+
+  static String _sigOf(FindPrefs p) => [
+        if (p.useSimplify) 'simplify',
+        ...p.lists,
+        ...p.boards.map((b) => b.id),
+      ].join(',');
+
   bool isNew(Posting p) => (_firstSeen[p.key] ?? 0) > _prevVisit && _prevVisit > 0;
 
   Future<void> load() async {
@@ -55,6 +83,7 @@ class FindService extends ChangeNotifier {
       fetchedAt = j['at'] == null ? null : DateTime.fromMillisecondsSinceEpoch(j['at'] as int);
       _firstSeen = Map<String, int>.from(j['seen'] as Map? ?? const {});
       _lastVisit = (j['visit'] as int?) ?? 0;
+      _sourcesSig = (j['sig'] as String?) ?? '';
       notifyListeners();
     } catch (_) {
       // a bad cache just means fetching again
@@ -69,6 +98,7 @@ class FindService extends ChangeNotifier {
           jsonEncode({
             'at': fetchedAt?.millisecondsSinceEpoch,
             'visit': _lastVisit,
+            'sig': _sourcesSig,
             'seen': _firstSeen,
             'postings': postings.map((x) => x.toJson()).toList(),
           }));
@@ -84,7 +114,9 @@ class FindService extends ChangeNotifier {
     _prevVisit = _lastVisit;
     _lastVisit = DateTime.now().millisecondsSinceEpoch;
     unawaited(_save());
-    if (fetchedAt == null || DateTime.now().difference(fetchedAt!) > maxAge) {
+    if (fetchedAt == null ||
+        DateTime.now().difference(fetchedAt!) > maxAge ||
+        _sourcesSig != _sigOf(store.findPrefs)) {
       await refresh();
     } else {
       notifyListeners();
@@ -92,10 +124,26 @@ class FindService extends ChangeNotifier {
     }
   }
 
-  Future<dynamic> _getJson(String url) async {
+  Future<String> _getText(String url) async {
     final r = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 45));
     if (r.statusCode != 200) throw 'HTTP ${r.statusCode}';
-    return jsonDecode(utf8.decode(r.bodyBytes));
+    return utf8.decode(r.bodyBytes);
+  }
+
+  Future<dynamic> _getJson(String url) async => jsonDecode(await _getText(url));
+
+  /// A board's feed. SmartRecruiters pages 100 at a time, so its pages are
+  /// joined (up to 1,000 postings) into one {'content': [...]}.
+  Future<dynamic> _boardFeed(FollowedBoard b) async {
+    if (b.ats != 'smartrecruiters') return _getJson(b.feedUrl);
+    final all = <dynamic>[];
+    for (var offset = 0; offset < 1000; offset += 100) {
+      final page = await _getJson('${b.feedUrl}&offset=$offset') as Map;
+      final content = page['content'] as List? ?? const [];
+      all.addAll(content);
+      if (content.length < 100 || all.length >= ((page['totalFound'] as num?) ?? 0)) break;
+    }
+    return {'content': all};
   }
 
   Future<void> refresh() async {
@@ -108,52 +156,67 @@ class FindService extends ChangeNotifier {
     final closed = <String>{};
     final fetchedBoards = <String>{};
 
-    Future<void> simplify() async {
+    Future<void> listJson(String source, String url) async {
       try {
-        final raw = await _getJson(simplifyUrl) as List;
-        final r = parseSimplify(raw,
-            term: prefs.term, hideAdvancedDegree: prefs.hideAdvancedDegree);
+        final r = parseSimplify(await _getJson(url) as List,
+            term: prefs.term, hideAdvancedDegree: prefs.hideAdvancedDegree, source: source);
         found.addAll(r.open);
         closed.addAll(r.closed);
       } catch (e) {
-        errors['SimplifyJobs'] = '$e';
+        errors[_listName[source]!] = '$e';
+      }
+    }
+
+    Future<void> speedyApply() async {
+      try {
+        final pages = await Future.wait(speedyApplyUrls.map(_getText));
+        for (final md in pages) {
+          found.addAll(parseSpeedyApply(md, term: prefs.term));
+        }
+      } catch (e) {
+        errors[_listName['speedyapply']!] = '$e';
       }
     }
 
     Future<void> board(FollowedBoard b) async {
       try {
-        found.addAll(parseBoard(b, await _getJson(b.feedUrl), term: prefs.term));
-        fetchedBoards.add('${b.ats == 'greenhouse' ? 'gh' : b.ats}:${b.slug}:');
+        found.addAll(parseBoard(b, await _boardFeed(b), term: prefs.term));
+        fetchedBoards.add(b.keyPrefix);
       } catch (e) {
         errors[b.name] = '$e';
       }
     }
 
     await Future.wait([
-      if (prefs.useSimplify) simplify(),
+      if (prefs.useSimplify) listJson('simplify', simplifyUrl),
+      if (prefs.lists.contains('speedyapply')) speedyApply(),
+      if (prefs.lists.contains('vansh')) listJson('vansh', vanshUrl),
       for (final b in prefs.boards) board(b),
     ]);
 
-    // One copy per role: a company's own board beats the same role on
-    // Simplify (exact dates, deadlines).
+    // One copy per role: a company's own board beats the lists (exact dates,
+    // deadlines), and among the lists the first in [findListSources] wins.
     final byKey = <String, Posting>{};
-    final byRole = <String, String>{};
+    final byRole = <String>{};
     String roleKey(Posting p) =>
         '${p.company.toLowerCase().trim()}|${p.title.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim()}';
-    for (final p in found.where((p) => p.source != 'simplify')) {
+    for (final p in found.where((p) => !findListSources.contains(p.source))) {
       byKey[p.key] = p;
-      byRole[roleKey(p)] = p.key;
+      byRole.add(roleKey(p));
     }
-    for (final p in found.where((p) => p.source == 'simplify')) {
-      if (!byRole.containsKey(roleKey(p))) byKey[p.key] = p;
+    for (final source in findListSources) {
+      for (final p in found.where((p) => p.source == source)) {
+        if (byRole.add(roleKey(p))) byKey[p.key] = p;
+      }
     }
 
     // Keep a source's previous postings if it failed this time, rather than
     // emptying the inbox over a network blip.
     final failedPrefixes = {
-      if (errors.containsKey('SimplifyJobs')) 'simplify:',
+      for (final source in findListSources)
+        if (errors.containsKey(_listName[source])) '$source:',
       for (final b in prefs.boards)
-        if (errors.containsKey(b.name)) '${b.ats == 'greenhouse' ? 'gh' : b.ats}:${b.slug}:',
+        if (errors.containsKey(b.name)) b.keyPrefix,
     };
     for (final p in postings) {
       if (failedPrefixes.any(p.key.startsWith)) byKey.putIfAbsent(p.key, () => p);
@@ -184,6 +247,7 @@ class FindService extends ChangeNotifier {
     store.markPostingsClosed(closed);
 
     fetchedAt = DateTime.now();
+    _sourcesSig = _sigOf(prefs);
     loading = false;
     notifyListeners();
     await _save();
@@ -257,17 +321,27 @@ class FindService extends ChangeNotifier {
     if (b == null) {
       return (
         null,
-        'Find can follow Greenhouse, Lever and Ashby job boards — paste a link like '
-            'boards.greenhouse.io/riotgames, jobs.lever.co/larian or jobs.ashbyhq.com/hoyoverse.'
+        'Find can follow Greenhouse, Lever, Ashby, SmartRecruiters and Workable job boards — '
+            'paste a link like boards.greenhouse.io/riotgames, jobs.lever.co/larian, '
+            'jobs.ashbyhq.com/hoyoverse, jobs.smartrecruiters.com/Ubisoft2 or apply.workable.com/rovio.'
       );
     }
     try {
       final r = await http.get(Uri.parse(b.feedUrl)).timeout(const Duration(seconds: 30));
       if (r.statusCode != 200) return (null, 'That board didn\'t answer (HTTP ${r.statusCode}).');
       var title = name;
-      if (title == null && b.ats == 'greenhouse') {
-        final jobs = (jsonDecode(utf8.decode(r.bodyBytes)) as Map)['jobs'] as List?;
-        if (jobs != null && jobs.isNotEmpty) title = (jobs.first as Map)['company_name'] as String?;
+      if (title == null) {
+        // The company's name, where the feed says it.
+        final j = jsonDecode(utf8.decode(r.bodyBytes));
+        if (j is Map) {
+          final first = ((j['jobs'] ?? j['content']) as List?)?.firstOrNull;
+          title = switch (b.ats) {
+            'greenhouse' => (first as Map?)?['company_name'] as String?,
+            'smartrecruiters' => ((first as Map?)?['company'] as Map?)?['name'] as String?,
+            'workable' => j['name'] as String?,
+            _ => null,
+          };
+        }
       }
       return (FollowedBoard(b.ats, b.slug, title ?? b.slug), null);
     } catch (e) {

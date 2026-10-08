@@ -364,6 +364,12 @@ class _FindTabState extends State<_FindTab> {
           _chip('SimplifyJobs (US · CA · UK)', prefs.useSimplify,
               () => _setPrefs((p) => p.useSimplify = !p.useSimplify, refetch: true),
               color: C.teal),
+          _chip('SpeedyApply (US + international)', prefs.lists.contains('speedyapply'),
+              () => _setPrefs((p) => toggle(p.lists, 'speedyapply'), refetch: true),
+              color: C.teal),
+          _chip('vanshb03 list', prefs.lists.contains('vansh'),
+              () => _setPrefs((p) => toggle(p.lists, 'vansh'), refetch: true),
+              color: C.teal),
           _chip('Hide PhD/MBA-only', prefs.hideAdvancedDegree,
               () => _setPrefs((p) => p.hideAdvancedDegree = !p.hideAdvancedDegree, refetch: true),
               color: C.teal),
@@ -553,7 +559,7 @@ class _FindTabState extends State<_FindTab> {
     final ints = interestsOf(p).where(store.findPrefs.interests.contains).toList();
     return _tile(
       color: color,
-      height: 122,
+      height: 138,
       onTap: () => csvio.openLink(p.url),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -597,28 +603,15 @@ class _FindTabState extends State<_FindTab> {
           ),
         ]),
         const Spacer(),
+        // Where · source, and when — plain text on its own line, so the tag
+        // strip below never has to squeeze them.
         Row(children: [
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const NeverScrollableScrollPhysics(),
-              child: Row(children: [
-                if (p.sponsor != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 5),
-                    child: _sponsorMark(p.sponsor!),
-                  ),
-                for (final i in ints.take(2))
-                  Padding(
-                    padding: const EdgeInsets.only(right: 5),
-                    child: _pill(findInterestLabel[i]!.toUpperCase(), interestColor(i), filled: true),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 5),
-                  child: _pill(p.source == 'simplify' ? 'SIMPLIFY' : 'COMPANY BOARD', C.ink3),
-                ),
-                Text(_where(p), style: mono(size: 10, color: C.ink2)),
-              ]),
+            child: Text(
+              [_where(p), findSourceLabel[p.source] ?? p.source].where((x) => x.isNotEmpty).join(' · '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: mono(size: 10, color: C.ink2),
             ),
           ),
           Padding(
@@ -632,7 +625,47 @@ class _FindTabState extends State<_FindTab> {
             ),
           ),
         ]),
+        const SizedBox(height: 5),
+        _tagStrip([
+          if (p.sponsor != null) _sponsorMark(p.sponsor!),
+          for (final i in ints)
+            _pill(findInterestLabel[i]!.toUpperCase(), interestColor(i), filled: true),
+        ]),
       ]),
+    );
+  }
+
+  /// A row of tags that scrolls sideways when it doesn't fit (drag, swipe or
+  /// shift-scroll), fading out at the right edge instead of being cut off.
+  Widget _tagStrip(List<Widget> tags) {
+    if (tags.isEmpty) return const SizedBox(height: 20);
+    return SizedBox(
+      height: 22,
+      child: ShaderMask(
+        shaderCallback: (r) => const LinearGradient(
+          colors: [Colors.black, Colors.black, Colors.transparent],
+          stops: [0, .88, 1],
+        ).createShader(r),
+        blendMode: BlendMode.dstIn,
+        child: ScrollConfiguration(
+          // Let a mouse drag it too (Flutter only drags with touch by default).
+          behavior: ScrollConfiguration.of(context).copyWith(
+            dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse, PointerDeviceKind.trackpad},
+            scrollbars: false,
+          ),
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.only(right: 24),
+            children: [
+              for (final t in tags)
+                Padding(
+                  padding: const EdgeInsets.only(right: 5),
+                  child: Center(child: t),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -662,7 +695,8 @@ class _FindTabState extends State<_FindTab> {
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text(
                     'Find reads these companies\' own job boards for internships — the way to '
-                    'reach game studios and Asia offices, which SimplifyJobs barely covers.',
+                    'reach game studios and Asia offices, which the lists barely cover. It can '
+                    'follow Greenhouse, Lever, Ashby, SmartRecruiters and Workable boards.',
                     style: TextStyle(fontSize: 12.5, color: C.ink2)),
                 const SizedBox(height: 10),
                 Wrap(children: [
@@ -698,7 +732,7 @@ class _FindTabState extends State<_FindTab> {
                   controller: link,
                   decoration: InputDecoration(
                     isDense: true,
-                    hintText: 'e.g. boards.greenhouse.io/riotgames',
+                    hintText: 'e.g. boards.greenhouse.io/riotgames or jobs.smartrecruiters.com/Ubisoft2',
                     errorText: error,
                     errorMaxLines: 3,
                   ),

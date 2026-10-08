@@ -223,7 +223,7 @@ void main() {
       Posting(key: 'simplify:3', source: 'simplify', company: 'London Co', title: 'Software Engineer Intern',
           locations: const ['London, UK'], url: 'u3', posted: now),
     ];
-    svc.fetchedAt = DateTime.now(); // fresh: no network refresh on open
+    svc.markFresh(); // fresh: no network refresh on open
     await tester.pumpWidget(const MaterialApp(home: Scaffold(body: CareerPage())));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Find'));
