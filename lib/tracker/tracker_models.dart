@@ -316,13 +316,14 @@ String? _pickOrNull(dynamic v, List<String> allowed) {
 
 /// What a goal counts. 'manual' is a counter you bump yourself; the rest are
 /// counted from your applications and events, from [Goal.since] on.
-const goalMetrics = ['manual', 'applied', 'interviews', 'attended', 'hackathons'];
+const goalMetrics = ['manual', 'applied', 'interviews', 'attended', 'hackathons', 'leetcode'];
 const goalMetricLabel = {
   'manual': 'I count it myself',
   'applied': 'Applications sent',
   'interviews': 'Interviews reached',
   'attended': 'Events attended',
   'hackathons': 'Hackathons & game jams attended',
+  'leetcode': 'LeetCode problems solved',
 };
 
 class Goal {
@@ -347,7 +348,10 @@ class Goal {
   });
 
   /// Progress toward [target], from the counter or from the records.
-  int progress(List<Application> apps, List<TrackEvent> events) {
+  /// [leetcodeSolved] gives LeetCode problems solved since a day (null = all
+  /// time); without it a LeetCode goal reads 0.
+  int progress(List<Application> apps, List<TrackEvent> events,
+      {int Function(DateTime? since)? leetcodeSolved}) {
     final from = parseWhen(since);
     bool after(String? d) {
       if (from == null) return true;
@@ -368,6 +372,7 @@ class Goal {
               (e.type == 'hackathon' || e.type == 'game-jam') &&
               after(e.start))
           .length,
+      'leetcode' => leetcodeSolved?.call(from) ?? 0,
       _ => count,
     };
   }

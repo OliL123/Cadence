@@ -1,5 +1,7 @@
 // The Career section: an overview (the whole schedule beside goals and
 // metrics), the applications pipeline, and events — built from trackers-plan.md.
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -14,6 +16,7 @@ import 'tracker_csv.dart';
 import 'tracker_models.dart';
 import 'job_fetch.dart';
 import 'job_sources.dart';
+import 'leetcode.dart';
 
 part 'find_tab.dart';
 
@@ -48,6 +51,38 @@ Color statusColor(String s) => switch (s) {
       'rejected' => C.red,
       _ => C.ink3,
     };
+
+/// LeetCode fetching, shared by the Overview panel: one at a time, at most
+/// every 3 hours on its own (Refresh forces it), and not again for 10 minutes
+/// after a failure.
+final _lcBusy = ValueNotifier<bool>(false);
+String? _lcError;
+DateTime? _lcTried;
+
+Future<void> _refreshLeetCode({bool force = false}) async {
+  final user = store.leetcodeUser;
+  if (user == null || _lcBusy.value) return;
+  final now = DateTime.now();
+  final last = store.leetcode?.fetchedAt;
+  if (!force) {
+    if (last != null && now.difference(last) < const Duration(hours: 3)) return;
+    if (_lcTried != null && now.difference(_lcTried!) < const Duration(minutes: 10)) return;
+  }
+  _lcTried = now;
+  _lcBusy.value = true;
+  try {
+    final s = await fetchLeetCode(user);
+    if (s == null) {
+      _lcError = 'No LeetCode user called "" — check the spelling.';
+    } else {
+      _lcError = null;
+      store.setLeetCode(s);
+    }
+  } catch (_) {
+    _lcError = 'Couldn\'t reach LeetCode just now — showing the last numbers.';
+  }
+  _lcBusy.value = false;
+}
 
 class CareerPage extends StatefulWidget {
   const CareerPage({super.key});
@@ -752,6 +787,167 @@ class _OverviewTab extends StatelessWidget {
         ]),
       );
 
+  // ---- LeetCode ----
+
+  List<Widget> _leetcodePanel(BuildContext context) {
+    final user = store.leetcodeUser;
+    if (user != null) scheduleMicrotask(_refreshLeetCode);
+    return [
+      _feltTitle('LEETCODE', count: user),
+      IvoryTile(
+        lip: C.mustard,
+        child: user == null
+            ? _lcConnect(context)
+            : ValueListenableBuilder<bool>(
+                valueListenable: _lcBusy,
+                builder: (_, busy, _) => _lcStats(context, store.leetcode, busy),
+              ),
+      ),
+    ];
+  }
+
+  Future<void> _askLeetCodeUser(BuildContext context) async {
+    final ctl = TextEditingController(text: store.leetcodeUser ?? '');
+    final v = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        backgroundColor: C.paper2,
+        title: const Text('Your LeetCode username'),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'e.g. DarkSparktheVoid'),
+          onSubmitted: (s) => Navigator.pop(d, s),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(d, ctl.text),
+            style: FilledButton.styleFrom(backgroundColor: C.green),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    ctl.dispose();
+    if (v == null || v.trim().isEmpty) return;
+    store.setLeetCodeUser(v);
+    await _refreshLeetCode(force: true);
+  }
+
+  Widget _lcConnect(BuildContext context) => Row(children: [
+        const Expanded(
+          child: Text('Track your LeetCode progress here — solved counts, this week, and goals '
+              'that count themselves.',
+              style: TextStyle(fontSize: 12.5, color: C.ink2)),
+        ),
+        const SizedBox(width: 10),
+        FilledButton(
+          onPressed: () => _askLeetCodeUser(context),
+          style: FilledButton.styleFrom(backgroundColor: C.green),
+          child: const Text('Connect'),
+        ),
+      ]);
+
+  Widget _lcStats(BuildContext context, LeetCodeStats? s, bool busy) {
+    Widget legend(String label, int n, Color c) => Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+            const SizedBox(width: 4),
+            Text('$label $n', style: mono(size: 10.5, color: C.ink2, w: FontWeight.w700)),
+          ]),
+        );
+    final easy = s?.easy ?? 0, medium = s?.medium ?? 0, hard = s?.hard ?? 0;
+    final sum = easy + medium + hard;
+    final last = (s?.recent.isNotEmpty ?? false) ? s!.recent.first : null;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Text(s == null ? '—' : '${s.total}', style: disp(size: 34, w: FontWeight.w700, color: C.ink)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(
+              s == null
+                  ? (busy ? 'fetching…' : 'not fetched yet')
+                  : [
+                      'solved',
+                      '+${s.thisWeek} this week',
+                      if ((s.streak ?? 0) > 0) '${s.streak}-day streak',
+                    ].join(' · '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: C.ink2),
+            ),
+            const SizedBox(height: 7),
+            // Easy / Medium / Hard as one bar.
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: SizedBox(
+                height: 8,
+                child: sum == 0
+                    ? Container(color: C.paper3)
+                    : Row(children: [
+                        if (easy > 0) Expanded(flex: easy, child: Container(color: C.green)),
+                        if (medium > 0) Expanded(flex: medium, child: Container(color: C.mustard)),
+                        if (hard > 0) Expanded(flex: hard, child: Container(color: C.red)),
+                      ]),
+              ),
+            ),
+          ]),
+        ),
+        busy
+            ? const Padding(
+                padding: EdgeInsets.all(8),
+                child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))
+            : IconButton(
+                tooltip: 'Refresh from LeetCode',
+                icon: const Icon(Icons.refresh, size: 18, color: C.ink2),
+                onPressed: () => _refreshLeetCode(force: true),
+              ),
+        PopupMenuButton<String>(
+          tooltip: 'LeetCode',
+          icon: const Icon(Icons.more_vert, size: 18, color: C.ink2),
+          onSelected: (v) {
+            switch (v) {
+              case 'profile':
+                csvio.openLink('https://leetcode.com/u/${store.leetcodeUser}/');
+              case 'user':
+                _askLeetCodeUser(context);
+              case 'off':
+                store.setLeetCodeUser(null);
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'profile', child: Text('Open my LeetCode profile')),
+            PopupMenuItem(value: 'user', child: Text('Change username')),
+            PopupMenuItem(value: 'off', child: Text('Disconnect')),
+          ],
+        ),
+      ]),
+      const SizedBox(height: 6),
+      Wrap(children: [
+        legend('Easy', easy, C.green),
+        legend('Medium', medium, C.mustard),
+        legend('Hard', hard, C.red),
+      ]),
+      if (last != null) ...[
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () => csvio.openLink(last.url),
+          child: Text('Last solved: ${last.title} · ${fmtWhen(isoDate(last.at))}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: C.greenD, fontWeight: FontWeight.w600)),
+        ),
+      ],
+      if (_lcError != null) ...[
+        const SizedBox(height: 4),
+        Text(_lcError!, style: mono(size: 10, color: C.red)),
+      ],
+    ]);
+  }
+
   List<Widget> _goals(BuildContext context) {
     final a = CareerAgenda.build(store.applications, store.trackEvents);
     final stats = AppStats.of(store.applications);
@@ -805,6 +1001,8 @@ class _OverviewTab extends StatelessWidget {
         ]),
       ),
 
+      ..._leetcodePanel(context),
+
       _feltTitle('PIPELINE'),
       IvoryTile(
         child: _statRow([
@@ -855,7 +1053,8 @@ class _OverviewTab extends StatelessWidget {
       );
 
   Widget _goalCard(BuildContext context, Goal g, DateTime now) {
-    final have = g.progress(store.applications, store.trackEvents);
+    final have = g.progress(store.applications, store.trackEvents,
+        leetcodeSolved: store.leetcodeSolvedSince);
     final done = have >= g.target;
     // On pace = at least the share of the target that the elapsed share of the
     // window calls for. Only meaningful with both a start and an end date.

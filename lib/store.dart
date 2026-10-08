@@ -6,6 +6,7 @@ import 'palette.dart';
 import 'models.dart';
 import 'tracker/tracker_models.dart';
 import 'tracker/job_sources.dart';
+import 'tracker/leetcode.dart';
 
 /// Reactive, persisted app state. Every mutation notifies listeners and saves.
 class CadenceStore extends ChangeNotifier {
@@ -49,6 +50,10 @@ class CadenceStore extends ChangeNotifier {
   /// Postings dismissed in Find: key -> "company — title" (kept so the
   /// ranking can learn what you pass on). Merged as a union across devices.
   Map<String, String> findDismissed = {};
+  /// LeetCode: whose profile to follow (a setting), and the latest stats with
+  /// their day-by-day history (merged across devices by fetch time).
+  String? leetcodeUser;
+  LeetCodeStats? leetcode;
   List<String> gcalCalendars = []; // chosen Google sub-calendar ids (synced)
   int gcalCalsUpdatedAt = 0; // own LWW clock for the selection (independent)
 
@@ -135,6 +140,8 @@ class CadenceStore extends ChangeNotifier {
     careerPins = [];
     findPrefs = FindPrefs();
     findDismissed = {};
+    leetcodeUser = null;
+    leetcode = null;
     gcalCalendars = [];
     gcalCalsUpdatedAt = 0;
     deleted = {};
@@ -202,6 +209,8 @@ class CadenceStore extends ChangeNotifier {
         'careerPins': careerPins,
         'findPrefs': findPrefs.toJson(),
         'findDismissed': findDismissed,
+        if (leetcodeUser != null) 'lcUser': leetcodeUser,
+        if (leetcode != null) 'leetcode': leetcode!.toJson(),
         'gcalCals': gcalCalendars,
         'gcalCalsAt': gcalCalsUpdatedAt,
       };
@@ -288,6 +297,14 @@ class CadenceStore extends ChangeNotifier {
     if (j['findDismissed'] is Map) {
       findDismissed = Map<String, String>.from(j['findDismissed'] as Map);
     }
+    if (j.containsKey('lcUser')) leetcodeUser = j['lcUser'] as String?;
+    if (j['leetcode'] is Map) {
+      try {
+        leetcode = LeetCodeStats.fromJson(Map<String, dynamic>.from(j['leetcode'] as Map));
+      } catch (_) {
+        // an unreadable copy: keep ours
+      }
+    }
     // The calendar selection has its own clock so it isn't clobbered by an
     // unrelated edit on another device — only a *newer selection* wins.
     // Strictly newer: on an equal clock the remote is not newer, it's a tie.
@@ -353,6 +370,7 @@ class CadenceStore extends ChangeNotifier {
     final lPins = List<String>.from(careerPins);
     final lFind = findPrefs;
     final lDismissed = Map<String, String>.from(findDismissed);
+    final lLcUser = leetcodeUser, lLc = leetcode;
 
     final remoteHasData = ['tasks', 'apps', 'events', 'goals']
         .any((k) => j[k] is List && (j[k] as List).isNotEmpty);
@@ -396,10 +414,17 @@ class CadenceStore extends ChangeNotifier {
       holidayCountries = lHol;
       careerPins = lPins;
       findPrefs = lFind;
+      leetcodeUser = lLcUser;
       updatedAt = lUpdated;
       push = true;
     }
     if (lUid > _uid) _uid = lUid;
+    // LeetCode numbers: the newest fetch, with both devices' history.
+    final mergedLc = LeetCodeStats.merge(leetcode, lLc);
+    if (mergedLc != null && mergedLc.user == leetcodeUser) {
+      if (jsonEncode(mergedLc.toJson()) != jsonEncode(leetcode?.toJson())) push = true;
+      leetcode = mergedLc;
+    }
     // Dismissals add up from every device.
     lDismissed.forEach((k, v) {
       if (!findDismissed.containsKey(k)) {
@@ -1328,6 +1353,29 @@ class CadenceStore extends ChangeNotifier {
     }
     if (n > 0) _changed();
     return n;
+  }
+
+  // ---------- LeetCode ----------
+  /// For LeetCode goals: solved since [since], or all time when null.
+  int leetcodeSolvedSince(DateTime? since) {
+    final l = leetcode;
+    if (l == null) return 0;
+    return since == null ? l.total : l.solvedSince(since);
+  }
+
+  void setLeetCodeUser(String? user) {
+    final u = user?.trim();
+    leetcodeUser = (u == null || u.isEmpty) ? null : u;
+    if (leetcode != null && leetcode!.user.toLowerCase() != leetcodeUser?.toLowerCase()) {
+      leetcode = null; // someone else's numbers
+    }
+    _changed();
+  }
+
+  /// A fresh fetch: today goes into the history, then it's saved and synced.
+  void setLeetCode(LeetCodeStats fresh) {
+    leetcode = fresh.withHistoryFrom(leetcode);
+    _changed();
   }
 
   // ---------- duplicates ----------
