@@ -518,13 +518,12 @@ class FollowedBoard {
 
 /// Community-kept internship lists on GitHub, in the order duplicates are
 /// resolved (a role on several lists is kept from the first).
-const findListSources = ['simplify', 'speedyapply', 'vansh'];
+const findListSources = ['simplify', 'speedyapply'];
 
 /// How each source is named on a card.
 const findSourceLabel = {
   'simplify': 'SimplifyJobs',
   'speedyapply': 'SpeedyApply',
-  'vansh': 'vanshb03 list',
   'greenhouse': 'Company board',
   'lever': 'Company board',
   'ashby': 'Company board',
@@ -580,7 +579,7 @@ class FindPrefs {
   bool useSimplify;
   bool hideAdvancedDegree; // PhD/MBA-only roles
   bool hideNoSponsor; // postings that say no sponsorship / citizens only / clearance
-  List<String> lists; // extra GitHub lists to read: 'speedyapply', 'vansh'
+  List<String> lists; // extra GitHub lists to read: 'speedyapply'
   List<FollowedBoard> boards;
 
   FindPrefs({
@@ -595,7 +594,7 @@ class FindPrefs {
     List<FollowedBoard>? boards,
   })  : countries = countries ?? ['US', 'HK', 'MY', 'SG', 'CN', 'AU'],
         interests = interests ?? ['game', 'swe', 'ml'],
-        lists = lists ?? ['speedyapply', 'vansh'],
+        lists = lists ?? ['speedyapply'],
         boards = boards ?? suggestedBoards.where((b) => b.game).toList();
 
   Map<String, dynamic> toJson() => {
@@ -618,7 +617,8 @@ class FindPrefs {
         useSimplify: j['simplify'] as bool? ?? true,
         hideAdvancedDegree: j['noAdv'] as bool? ?? true,
         hideNoSponsor: j['noSp'] as bool? ?? false,
-        lists: (j['lists'] as List?)?.cast<String>(),
+        // Only lists Find still reads (an older build also offered 'vansh').
+        lists: (j['lists'] as List?)?.cast<String>().where(findListSources.contains).toList(),
         boards: (j['boards'] as List?)
             ?.map((b) => FollowedBoard.fromJson(Map<String, dynamic>.from(b as Map)))
             .toList(),
@@ -632,26 +632,19 @@ DateTime? _epochS(dynamic v) =>
 
 /// SimplifyJobs' listings.json → open, visible postings for [term], plus the
 /// keys of every listing it marks closed (to flag ones you already added).
-/// The vanshb03 list uses the same format ([source] 'vansh'), with a bare
-/// "season" in place of "terms" — its repo is for one year, so "Summer"
-/// there means [term]'s summer.
 ({List<Posting> open, Set<String> closed}) parseSimplify(List<dynamic> raw,
-    {String term = 'Summer 2027', bool hideAdvancedDegree = true, String source = 'simplify'}) {
+    {String term = 'Summer 2027', bool hideAdvancedDegree = true}) {
   final open = <Posting>[];
   final closed = <String>{};
   for (final r in raw) {
     if (r is! Map) continue;
-    final key = '$source:${r['id']}';
-    if (r['active'] != true || r['is_visible'] == false) {
+    final key = 'simplify:${r['id']}';
+    if (r['active'] != true || r['is_visible'] != true) {
       closed.add(key);
       continue;
     }
-    final terms = (r['terms'] as List?)?.map((e) => '$e').toList();
-    if (terms != null) {
-      if (!terms.contains(term)) continue;
-    } else if (!term.toLowerCase().startsWith('${r['season'] ?? '?'}'.toLowerCase())) {
-      continue;
-    }
+    final terms = (r['terms'] as List?)?.map((e) => '$e').toList() ?? const [];
+    if (!terms.contains(term)) continue;
     final degrees = (r['degrees'] as List?)?.map((e) => '$e').toList() ?? const [];
     if (hideAdvancedDegree &&
         degrees.isNotEmpty &&
@@ -660,7 +653,7 @@ DateTime? _epochS(dynamic v) =>
     }
     open.add(Posting(
       key: key,
-      source: source,
+      source: 'simplify',
       company: '${r['company_name'] ?? ''}'.trim(),
       title: '${r['title'] ?? ''}'.trim(),
       locations: (r['locations'] as List?)?.map((e) => '$e').toList() ?? const [],

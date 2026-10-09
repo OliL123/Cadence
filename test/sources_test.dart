@@ -1,4 +1,4 @@
-// Find's extra sources: the SpeedyApply and vanshb03 GitHub lists, and
+// Find's extra sources: the SpeedyApply GitHub list, and
 // SmartRecruiters / Workable company boards.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cadence/tracker/job_sources.dart';
@@ -40,20 +40,6 @@ void main() {
       expect(citadel.posted, DateTime(2026, 9, 24), reason: '2w');
       expect(interestsOf(citadel), contains('quant'));
     });
-  });
-
-  test('the vanshb03 list: Simplify\'s format with a bare season', () {
-    final r = parseSimplify([
-      {'id': 'a', 'active': true, 'is_visible': true, 'season': 'Summer', 'company_name': 'Point72',
-        'title': 'Quantitative Developer Intern', 'locations': ['New York, NY'], 'url': 'https://p72'},
-      {'id': 'b', 'active': true, 'is_visible': true, 'season': 'Fall', 'company_name': 'X',
-        'title': 'SWE Intern', 'locations': ['NYC'], 'url': 'u'},
-      {'id': 'c', 'active': false, 'season': 'Summer', 'company_name': 'Y', 'title': 'Intern',
-        'locations': const [], 'url': 'u'},
-    ], source: 'vansh');
-    expect(r.open.map((p) => p.key), ['vansh:a']);
-    expect(r.open.single.source, 'vansh');
-    expect(r.closed, {'vansh:c'});
   });
 
   group('SmartRecruiters', () {
@@ -151,9 +137,11 @@ void main() {
     expect(const FollowedBoard('greenhouse', 'riotgames', 'Riot').keyPrefix, 'gh:riotgames:');
   });
 
-  test('prefs: both extra lists on by default, and they round-trip', () {
-    expect(FindPrefs().lists, ['speedyapply', 'vansh']);
-    final p = FindPrefs()..lists = ['speedyapply'];
-    expect(FindPrefs.fromJson(p.toJson()).lists, ['speedyapply']);
+  test('prefs: SpeedyApply on by default; a dropped list in old settings is ignored', () {
+    expect(FindPrefs().lists, ['speedyapply']);
+    final old = FindPrefs().toJson()..['lists'] = ['speedyapply', 'vansh'];
+    expect(FindPrefs.fromJson(old).lists, ['speedyapply']);
+    final none = FindPrefs()..lists = [];
+    expect(FindPrefs.fromJson(none.toJson()).lists, isEmpty);
   });
 }

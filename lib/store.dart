@@ -1315,7 +1315,7 @@ class CadenceStore extends ChangeNotifier {
       link: p.url,
       source: switch (p.source) {
         'simplify' => 'simplify',
-        'speedyapply' || 'vansh' => 'other',
+        'speedyapply' => 'other',
         _ => 'company-site',
       },
       deadline: p.deadline,

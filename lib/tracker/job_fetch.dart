@@ -17,8 +17,6 @@ import 'job_sources.dart';
 
 const simplifyUrl =
     'https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/.github/scripts/listings.json';
-const vanshUrl =
-    'https://raw.githubusercontent.com/vanshb03/Summer2027-Internships/dev/.github/scripts/listings.json';
 // SpeedyApply: US internships (README) and international ones.
 const speedyApplyUrls = [
   'https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/README.md',
@@ -26,7 +24,7 @@ const speedyApplyUrls = [
 ];
 
 /// Each list's name in error messages, and its posting-key prefix.
-const _listName = {'simplify': 'SimplifyJobs', 'speedyapply': 'SpeedyApply', 'vansh': 'vanshb03 list'};
+const _listName = {'simplify': 'SimplifyJobs', 'speedyapply': 'SpeedyApply'};
 
 class FindService extends ChangeNotifier {
   FindService._();
@@ -156,14 +154,14 @@ class FindService extends ChangeNotifier {
     final closed = <String>{};
     final fetchedBoards = <String>{};
 
-    Future<void> listJson(String source, String url) async {
+    Future<void> simplify() async {
       try {
-        final r = parseSimplify(await _getJson(url) as List,
-            term: prefs.term, hideAdvancedDegree: prefs.hideAdvancedDegree, source: source);
+        final r = parseSimplify(await _getJson(simplifyUrl) as List,
+            term: prefs.term, hideAdvancedDegree: prefs.hideAdvancedDegree);
         found.addAll(r.open);
         closed.addAll(r.closed);
       } catch (e) {
-        errors[_listName[source]!] = '$e';
+        errors[_listName['simplify']!] = '$e';
       }
     }
 
@@ -188,9 +186,8 @@ class FindService extends ChangeNotifier {
     }
 
     await Future.wait([
-      if (prefs.useSimplify) listJson('simplify', simplifyUrl),
+      if (prefs.useSimplify) simplify(),
       if (prefs.lists.contains('speedyapply')) speedyApply(),
-      if (prefs.lists.contains('vansh')) listJson('vansh', vanshUrl),
       for (final b in prefs.boards) board(b),
     ]);
 
