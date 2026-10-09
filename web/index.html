@@ -42,20 +42,61 @@
        so a new deploy is picked up without a manual hard refresh. -->
   <script>window.__CADENCE_BUILD__ = "__BUILD_ID__";</script>
   <script>
+    // A new deploy is offered, not forced: reloading by itself could throw
+    // away something half-typed. While the page is in use a small bar offers
+    // the update; after 30+ minutes away it updates itself on return.
     (function () {
       var B = window.__CADENCE_BUILD__;
-      if (!B || B === "__BUILD_ID__") return; // dev build — no auto-update
+      // Dev build: the deploy script hasn't stamped an id. (The marker is
+      // split so that stamping, which replaces every copy of it, can't turn
+      // this check into "is this build itself?" — which switched auto-update
+      // off on every deployed build.)
+      if (!B || B === "__BUILD" + "_ID__") return;
+      var AWAY_MS = 30 * 60 * 1000;
+      var pending = null, hiddenAt = null, bar = null, snoozed = null;
+      function reload() { location.replace("?v=" + encodeURIComponent(pending)); }
+      function offer() {
+        if (bar || snoozed === pending) return; // "Later" holds off for this version
+        bar = document.createElement("div");
+        bar.setAttribute("role", "status");
+        bar.style.cssText =
+          "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;" +
+          "display:flex;gap:12px;align-items:center;padding:9px 10px 9px 16px;" +
+          "background:#1F6E4E;color:#F6EFDA;border-radius:10px;" +
+          "font:600 14px system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);";
+        var text = document.createElement("span");
+        text.textContent = "A new version is ready";
+        var go = document.createElement("button");
+        go.textContent = "Reload";
+        go.style.cssText =
+          "border:0;border-radius:7px;padding:6px 12px;cursor:pointer;" +
+          "background:#D2982E;color:#2C271C;font:700 13px system-ui,sans-serif;";
+        go.onclick = reload;
+        var later = document.createElement("button");
+        later.textContent = "Later";
+        later.style.cssText =
+          "border:0;background:none;color:#F6EFDA;cursor:pointer;font:600 13px system-ui,sans-serif;";
+        later.onclick = function () { snoozed = pending; bar.remove(); bar = null; };
+        bar.append(text, go, later);
+        document.body.appendChild(bar);
+      }
       async function check() {
         try {
           var r = await fetch("build.txt?ts=" + Date.now(), { cache: "no-store" });
           if (!r.ok) return;
           var v = (await r.text()).trim();
-          if (v && v !== B) location.replace("?v=" + encodeURIComponent(v));
+          if (!v || v === B) return;
+          pending = v;
+          if (!document.hidden) offer();
         } catch (e) {}
       }
       setInterval(check, 60000);
       document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) check();
+        if (document.hidden) { hiddenAt = Date.now(); snoozed = null; return; }
+        var away = hiddenAt !== null && Date.now() - hiddenAt >= AWAY_MS;
+        hiddenAt = null;
+        if (pending && away) { reload(); return; }
+        check();
       });
     })();
   </script>

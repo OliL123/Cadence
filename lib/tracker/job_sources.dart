@@ -966,7 +966,8 @@ int findScore(Posting p, FindPrefs prefs, FindTaste taste, {DateTime? now}) {
   }
   final dl = parseWhen(p.deadline, endOfDay: true);
   if (dl != null && dl.isAfter(n) && dl.difference(n).inDays <= 14) s += 20;
-  if (p.source != 'simplify') s += 12; // a company you chose to follow
+  // A company you chose to follow (its own board) — not one of the lists.
+  if (!findListSources.contains(p.source)) s += 12;
   if (!prefs.interests.contains('quant') && (isFinanceCompany(p) || ints.contains('quant'))) s -= 20;
   return s + taste.bonus(p);
 }

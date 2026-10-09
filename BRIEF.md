@@ -3,7 +3,7 @@
 A personal to-do app with Android home-screen widgets, built because other to-do apps are worse
 to use, can't be changed, or cost money. Chronicle is a separately themed build of it for my partner.
 
-Updated: 2026-10-07 at f3eac7e
+Updated: 2026-10-09 at f819365
 
 ## Goals
 ★ = core, scored strictly · ~ = just needs to work
@@ -17,9 +17,13 @@ Updated: 2026-10-07 at f3eac7e
 - **G7 ★** A career tracker for applications, events and goals, with career alerts on the Tasks tab.
 - **G8 ~** The mahjong Focus wall helps pick a few tasks to work on now, and its score survives sync.
 - **G9 ~** Chronicle, the themed build for my partner, installs and works as a home-screen web app on iPhone.
+- **G10 ★** Find shows internship postings from free sources (SimplifyJobs, SpeedyApply, followed company boards on Greenhouse, Lever, Ashby, SmartRecruiters and Workable), filtered and ranked for me, grouped by company, and flagged for what they say about visa sponsorship.
+- **G11 ~** LeetCode progress (solved counts, streak, recent solves) shows on the Career goals board and can count toward goals. Just for fun.
 
 ## Planned
-- Relevant internship openings from free sources show up in the career tracker as suggestions.
+- Smart ranking in Find (descriptions + embeddings through a Supabase function), which also opens up Workday postings.
+- Find that works for anyone: choose the kinds of jobs you want at any level of detail (broad areas down to specific roles or keywords), and keep or save related postings.
+- A separate Game design filter, distinct from game programming.
 - An email digester turns mailing-list emails into career items and events ("From email" is already reserved in `tracker_models.dart`).
 - Suggested events worth going to: smash tournaments, game cons, talks and hiking get-togethers.
 

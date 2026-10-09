@@ -157,7 +157,13 @@ class SyncService extends ChangeNotifier {
   /// in, since the wipe would delete edits that exist nowhere else.
   Future<bool> signOut() async {
     _pushTimer?.cancel();
-    if (isSignedIn && hasUnsyncedChanges && !await _push(force: true)) {
+    // Always merge with the cloud and upload before wiping — not only when
+    // this device thinks it has unsent edits: another device may have just
+    // overwritten the cloud copy without some of ours, and only a fresh
+    // merge would put them back.
+    final unsynced = hasUnsyncedChanges;
+    final uploaded = isSignedIn && await _push(force: true);
+    if (!uploaded && unsynced) {
       message = 'Couldn\'t upload your latest changes, so you\'re still signed '
           'in. Try again when you\'re online.';
       notifyListeners();
@@ -177,19 +183,43 @@ class SyncService extends ChangeNotifier {
     stage = SyncStage.syncing;
     message = null;
     notifyListeners();
+    // Wire up first, then pull: if the app opened offline the pull fails, and
+    // sync must still be listening for edits and retrying — it used to stay
+    // off for the whole session.
+    _subscribe();
+    if (!_wired) {
+      store.addListener(_onLocalChange);
+      _wired = true;
+    }
+    await _pullOrRetry();
+  }
+
+  Timer? _retryTimer;
+
+  /// Pull (merge with the cloud). On failure — usually offline — show it and
+  /// try again in 30 seconds until it works.
+  Future<bool> _pullOrRetry() async {
+    _retryTimer?.cancel();
     try {
       await _pull();
-      _subscribe();
-      if (!_wired) {
-        store.addListener(_onLocalChange);
-        _wired = true;
-      }
       stage = SyncStage.live;
+      message = null;
+      notifyListeners();
+      return true;
     } catch (err) {
       stage = SyncStage.error;
-      message = 'Sync error: $err';
+      message = 'Offline — will keep trying to sync.';
+      notifyListeners();
+      _scheduleRetry();
+      return false;
     }
-    notifyListeners();
+  }
+
+  void _scheduleRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = Timer(const Duration(seconds: 30), () {
+      if (isSignedIn) _pullOrRetry();
+    });
   }
 
   Future<void> _pull() async {
@@ -284,10 +314,12 @@ class SyncService extends ChangeNotifier {
       } else {
         await _upload();
       }
+      if (stage == SyncStage.error) stage = SyncStage.live; // back online
       notifyListeners();
       return true;
     } catch (_) {
-      // offline / transient — will retry on the next change
+      // Offline / transient: retry (a pull merges and uploads what's waiting).
+      _scheduleRetry();
       return false;
     }
   }
@@ -319,7 +351,7 @@ class SyncService extends ChangeNotifier {
   Future<void> onResume() async {
     await store.load();
     store.notify();
-    if (isSignedIn) await _pull();
+    if (isSignedIn) await _pullOrRetry();
   }
 
   /// "Sync now": merge with the cloud and upload anything it's missing,
@@ -384,5 +416,6 @@ class SyncService extends ChangeNotifier {
     _channel?.unsubscribe();
     _channel = null;
     _pushTimer?.cancel();
+    _retryTimer?.cancel();
   }
 }

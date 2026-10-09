@@ -48,8 +48,29 @@ class CadenceStore extends ChangeNotifier {
   /// Find's filters and followed companies (a setting: newest wins).
   FindPrefs findPrefs = FindPrefs();
   /// Postings dismissed in Find: key -> "company — title" (kept so the
-  /// ranking can learn what you pass on). Merged as a union across devices.
+  /// ranking can learn what you pass on), and when each was dismissed.
+  /// Merged as a union across devices, except where an un-dismiss (a
+  /// deletion marker "fd:key") is newer than the dismissal.
   Map<String, String> findDismissed = {};
+  Map<String, int> findDismissedAt = {};
+
+  /// When each synced setting was last changed on any device (ms), so a merge
+  /// keeps each setting from whichever side changed *it* last — not from
+  /// whichever side changed anything last, which let an unrelated task edit
+  /// on one device revert another device's offline settings change.
+  Map<String, int> settingsAt = {};
+
+  /// The settings, each as a fingerprint of its value. [_changed] stamps
+  /// [settingsAt] for any whose fingerprint moved since it last looked.
+  Map<String, String> _settingSigs() => {
+        'wall': '${wall.join(',')}|${deck.map((t) => '${t.suit}${t.val}').join()}|$streak',
+        'wx': '$weatherPlace|$weatherLat|$weatherLon',
+        'hol': holidayCountries.join(','),
+        'pins': careerPins.join(','),
+        'find': jsonEncode(findPrefs.toJson()),
+        'lcUser': leetcodeUser ?? '',
+      };
+  Map<String, String> _sigs = {};
   /// LeetCode: whose profile to follow (a setting), and the latest stats with
   /// their day-by-day history (merged across devices by fetch time).
   String? leetcodeUser;
@@ -140,11 +161,13 @@ class CadenceStore extends ChangeNotifier {
     careerPins = [];
     findPrefs = FindPrefs();
     findDismissed = {};
+    findDismissedAt = {};
     leetcodeUser = null;
     leetcode = null;
     gcalCalendars = [];
     gcalCalsUpdatedAt = 0;
     deleted = {};
+    settingsAt = {}; // defaults carry no clock: an account's settings win
     pendingMergePush = false;
     // Sample tasks with edit clock 0: shown as on a new install, but never
     // merged into an account that has data (see [applyRemoteState]).
@@ -188,30 +211,34 @@ class CadenceStore extends ChangeNotifier {
   /// The shared app state — what travels between devices. Deliberately excludes
   /// the view preferences below: which filter, layout or "show done" you're
   /// using is a property of the device in your hand, not of your task list.
+  /// Copies, not the store's own lists and maps: a caller holding the result
+  /// (a test's "cloud copy", say) must not see later edits through it.
   Map<String, dynamic> exportState() => {
         'groups': groups.map((g) => g.toJson()).toList(),
         'tasks': tasks.map((t) => t.toJson()).toList(),
-        'wall': wall,
+        'wall': List.of(wall),
         'deck': deck.map((t) => t.toJson()).toList(),
         'uid': _uid,
         'streak': streak,
         'score': score,
-        'scoredMelds': scoredMelds,
+        'scoredMelds': List.of(scoredMelds),
         'apps': applications.map((a) => a.toJson()).toList(),
         'events': trackEvents.map((e) => e.toJson()).toList(),
         'goals': goals.map((g) => g.toJson()).toList(),
-        'deleted': deleted,
+        'deleted': Map.of(deleted),
+        'setAt': Map.of(settingsAt),
         'updatedAt': updatedAt,
         'wxPlace': weatherPlace,
         'wxLat': weatherLat,
         'wxLon': weatherLon,
-        'holCountries': holidayCountries,
-        'careerPins': careerPins,
+        'holCountries': List.of(holidayCountries),
+        'careerPins': List.of(careerPins),
         'findPrefs': findPrefs.toJson(),
-        'findDismissed': findDismissed,
+        'findDismissed': Map.of(findDismissed),
+        'findDismissedAt': Map.of(findDismissedAt),
         if (leetcodeUser != null) 'lcUser': leetcodeUser,
         if (leetcode != null) 'leetcode': leetcode!.toJson(),
-        'gcalCals': gcalCalendars,
+        'gcalCals': List.of(gcalCalendars),
         'gcalCalsAt': gcalCalsUpdatedAt,
       };
 
@@ -263,6 +290,11 @@ class CadenceStore extends ChangeNotifier {
           .map((e) => Goal.fromJson(e as Map<String, dynamic>))
           .toList();
     }
+    // Missing (an older build's copy) reads as "no clocks": settings then fall
+    // back to the whole-state clock in a merge.
+    settingsAt = j['setAt'] is Map
+        ? (j['setAt'] as Map).map((k, v) => MapEntry(k as String, (v as num).toInt()))
+        : <String, int>{};
     // Missing (an older build's copy) reads as "no markers": a merge then sees
     // this device's markers as news and publishes them.
     deleted = j['deleted'] is Map
@@ -297,6 +329,12 @@ class CadenceStore extends ChangeNotifier {
     if (j['findDismissed'] is Map) {
       findDismissed = Map<String, String>.from(j['findDismissed'] as Map);
     }
+    if (j['findDismissedAt'] is Map) {
+      findDismissedAt = (j['findDismissedAt'] as Map)
+          .map((k, v) => MapEntry(k as String, (v as num).toInt()));
+    } else if (j.containsKey('findDismissed')) {
+      findDismissedAt = {}; // a copy from before dismissal times existed
+    }
     if (j.containsKey('lcUser')) leetcodeUser = j['lcUser'] as String?;
     if (j['leetcode'] is Map) {
       try {
@@ -322,6 +360,7 @@ class CadenceStore extends ChangeNotifier {
     }
     if (groups.isEmpty) groups = defaultGroups();
     _reconcile();
+    _sigs = _settingSigs(); // loaded, not edited: nothing to stamp
   }
 
   /// Set by [applyRemoteState] when the merge kept something the incoming
@@ -370,7 +409,10 @@ class CadenceStore extends ChangeNotifier {
     final lPins = List<String>.from(careerPins);
     final lFind = findPrefs;
     final lDismissed = Map<String, String>.from(findDismissed);
+    final lDismissedAt = Map<String, int>.from(findDismissedAt);
     final lLcUser = leetcodeUser, lLc = leetcode;
+    final lSetAt = Map<String, int>.from(settingsAt);
+    final lSigs = _settingSigs();
 
     final remoteHasData = ['tasks', 'apps', 'events', 'goals']
         .any((k) => j[k] is List && (j[k] as List).isNotEmpty);
@@ -403,21 +445,36 @@ class CadenceStore extends ChangeNotifier {
     goals = mergeKind('gl', goals, lGoals, (g) => g.id, (g) => g.uAt).$1;
     if (groups.isEmpty) groups = defaultGroups();
 
-    // Settings: the side that changed something last.
-    if (localNewer) {
-      wall = lWall;
-      deck = lDeck;
-      streak = lStreak;
-      weatherPlace = lWx.$1;
-      weatherLat = lWx.$2;
-      weatherLon = lWx.$3;
-      holidayCountries = lHol;
-      careerPins = lPins;
-      findPrefs = lFind;
-      leetcodeUser = lLcUser;
-      updatedAt = lUpdated;
-      push = true;
+    // Settings: each from whichever side changed *that setting* last. With
+    // no clock on either side (copies from older builds), the whole-state
+    // clock decides, as before.
+    final rSigs = _settingSigs();
+    for (final k in lSigs.keys) {
+      final lt = lSetAt[k] ?? 0, rt = settingsAt[k] ?? 0;
+      final localWins = (lt == 0 && rt == 0) ? localNewer : lt > rt;
+      if (!localWins) continue;
+      switch (k) {
+        case 'wall':
+          wall = lWall;
+          deck = lDeck;
+          streak = lStreak;
+        case 'wx':
+          weatherPlace = lWx.$1;
+          weatherLat = lWx.$2;
+          weatherLon = lWx.$3;
+        case 'hol':
+          holidayCountries = lHol;
+        case 'pins':
+          careerPins = lPins;
+        case 'find':
+          findPrefs = lFind;
+        case 'lcUser':
+          leetcodeUser = lLcUser;
+      }
+      if (lt > 0) settingsAt[k] = lt;
+      if (lSigs[k] != rSigs[k]) push = true; // the cloud has the older value
     }
+    if (localNewer) updatedAt = lUpdated;
     if (lUid > _uid) _uid = lUid;
     // LeetCode numbers: the newest fetch, with both devices' history.
     final mergedLc = LeetCodeStats.merge(leetcode, lLc);
@@ -425,13 +482,28 @@ class CadenceStore extends ChangeNotifier {
       if (jsonEncode(mergedLc.toJson()) != jsonEncode(leetcode?.toJson())) push = true;
       leetcode = mergedLc;
     }
-    // Dismissals add up from every device.
+    // Dismissals add up from every device, each at its latest time — unless
+    // an un-dismiss (Find's UNDO) is newer, which takes it back out.
     lDismissed.forEach((k, v) {
       if (!findDismissed.containsKey(k)) {
         findDismissed[k] = v;
         push = true;
       }
     });
+    lDismissedAt.forEach((k, at) {
+      if ((findDismissedAt[k] ?? -1) < at) {
+        findDismissedAt[k] = at;
+        push = true;
+      }
+    });
+    final undone = findDismissed.keys
+        .where((k) => (deleted['fd:$k'] ?? -1) >= (findDismissedAt[k] ?? 0))
+        .toList();
+    for (final k in undone) {
+      findDismissed.remove(k);
+      findDismissedAt.remove(k);
+      push = true; // the cloud copy still has it
+    }
 
     // Points earned here since the last sync are added on top of the
     // incoming total, so melds scored on two devices between syncs both
@@ -465,6 +537,7 @@ class CadenceStore extends ChangeNotifier {
     // This is now what the cloud holds; any merged-in gain becomes synced once
     // the sync layer pushes it and calls [markScoreSynced].
     _syncedScore = remoteScore;
+    _sigs = _settingSigs(); // merged, not edited: nothing to stamp
     pendingMergePush = push;
     save();
     notifyListeners();
@@ -555,6 +628,11 @@ class CadenceStore extends ChangeNotifier {
 
   void _changed() {
     updatedAt = DateTime.now().millisecondsSinceEpoch;
+    final now = _settingSigs();
+    now.forEach((k, v) {
+      if (_sigs[k] != null && _sigs[k] != v) settingsAt[k] = updatedAt;
+    });
+    _sigs = now;
     notifyListeners();
     save();
   }
@@ -652,6 +730,7 @@ class CadenceStore extends ChangeNotifier {
       t.tile = s == null ? drawTile() : _takeSpecific(s.suit, s.val);
       wall.add(t.id);
     }
+    _sigs = _settingSigs(); // starting values, not edits
     save();
   }
 
@@ -1284,11 +1363,17 @@ class CadenceStore extends ChangeNotifier {
 
   void dismissPosting(Posting p) {
     findDismissed[p.key] = '${p.company} — ${p.title}';
+    findDismissedAt[p.key] = _now;
     _changed();
   }
 
+  /// Undo a dismissal. Leaves a marker so the merge doesn't bring the
+  /// dismissal straight back from the cloud copy (it syncs within a second).
   void undismissPosting(String key) {
-    if (findDismissed.remove(key) != null) _changed();
+    if (findDismissed.remove(key) == null) return;
+    findDismissedAt.remove(key);
+    _markDeleted('fd', key);
+    _changed();
   }
 
   /// Postings already handled: added as an application (by posting id or
